@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tribe"
+version = "0.1.0"
+description = "An AI agent collaboration framework built on top of crewAI"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "crewai[tools]>=0.100.1,<1.0.0"
+]
+
+[project.scripts]
+tribe = "tribe.main:main"
+run_crew = "tribe.main:run_crew"
+train = "tribe.main:train"
+replay = "tribe.main:replay"
+test = "tribe.main:test"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.hatch.build]
+include = [
+    "tribe/**/*.py",
+    "tribe/**/*.json",
+    "tribe/**/*.txt",
+    "pyproject.toml",
+    "README.md"
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.crewai]
+type = "crew"

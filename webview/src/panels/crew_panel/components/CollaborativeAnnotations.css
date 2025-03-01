@@ -1,0 +1,387 @@
+.collaborative-annotations {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.annotations-header {
+    padding: 12px 16px;
+    background-color: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.annotations-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.annotations-description {
+    margin: 0;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.4;
+}
+
+.annotations-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.empty-annotations {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    text-align: center;
+    padding: 0 16px;
+}
+
+.annotation {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+}
+
+.annotation:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.annotation.reply {
+    margin-left: 24px;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--vscode-panel-border);
+}
+
+.annotation.agent {
+    border-left: 3px solid var(--vscode-statusBarItem-prominentBackground);
+}
+
+.annotation-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.author-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.author-icon {
+    flex-shrink: 0;
+}
+
+.author-icon.human {
+    color: var(--vscode-foreground);
+}
+
+.author-icon.agent {
+    color: var(--vscode-statusBarItem-prominentBackground);
+}
+
+.author-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--vscode-foreground);
+}
+
+.annotation-time {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.annotation-content {
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--vscode-foreground);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.code-snippet {
+    margin: 0 12px 12px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background-color: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    font-size: 11px;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-path {
+    font-family: var(--vscode-editor-font-family);
+    color: var(--vscode-foreground);
+}
+
+.line-range {
+    color: var(--vscode-descriptionForeground);
+}
+
+.code-content {
+    margin: 0;
+    padding: 10px;
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-x: auto;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.annotation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 12px 12px;
+}
+
+.action-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    background-color: transparent;
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.action-button:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.reply-button {
+    color: var(--vscode-foreground);
+}
+
+.view-code-button {
+    color: var(--vscode-button-foreground);
+    background-color: var(--vscode-button-secondaryBackground);
+    border: none;
+}
+
+.view-code-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.edit-button {
+    color: var(--vscode-foreground);
+}
+
+.delete-button {
+    color: var(--vscode-errorForeground);
+}
+
+.view-in-editor-button {
+    background: none;
+    border: none;
+    color: var(--vscode-button-foreground);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.view-in-editor-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.replies-container {
+    padding: 12px;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.reply-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.reply-textarea {
+    flex: 1;
+    min-height: 36px;
+    max-height: 120px;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: inherit;
+    font-size: 12px;
+    resize: vertical;
+}
+
+.reply-textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.send-reply-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    align-self: flex-end;
+}
+
+.send-reply-button:hover:not(:disabled) {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.send-reply-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.edit-annotation {
+    padding: 12px;
+}
+
+.edit-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    margin-bottom: 8px;
+}
+
+.edit-textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.save-button, .cancel-button {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    border: none;
+}
+
+.save-button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.save-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.cancel-button {
+    background-color: transparent;
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-panel-border);
+}
+
+.cancel-button:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.new-annotation {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    border-top: 1px solid var(--vscode-panel-border);
+    background-color: var(--vscode-sideBar-background);
+}
+
+.annotation-textarea {
+    flex: 1;
+    min-height: 60px;
+    max-height: 200px;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+}
+
+.annotation-textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.send-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 4px;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    align-self: flex-end;
+}
+
+.send-button:hover:not(:disabled) {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.send-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+} 

@@ -1,0 +1,28 @@
+import { ErrorHandler, ErrorContext, ErrorSource, ErrorSeverity } from '@mighty/vscode-error-manager';
+
+// Initialize in extension activation
+const errorHandler = ErrorHandler.getInstance();
+context.subscriptions.push(errorHandler);
+
+// Handle errors with context
+errorHandler.handleError({
+    source: ErrorSource.Extension,
+    severity: ErrorSeverity.Error,
+    message: 'Error message',
+    details: 'Additional details'
+});
+
+// Use decorators for automatic error handling
+@vsCommand('myExtension.someCommand')
+async function someCommand() {
+    // Command implementation
+}
+
+// Wrap async functions
+const safeFunction = wrapAsyncFunction(
+    ErrorSource.Extension,
+    'operationName',
+    async () => {
+        // Function implementation
+    }
+);

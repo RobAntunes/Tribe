@@ -1,0 +1,563 @@
+/* Design Tokens - CSS Variables */
+:root {
+  /* Base colors - synced with VS Code theme */
+  --vscode-bg: var(--vscode-editor-background);
+  --vscode-fg: var(--vscode-editor-foreground);
+  --vscode-border: var(--vscode-panel-border);
+  --vscode-focus: var(--vscode-focusBorder);
+  --vscode-button-bg: var(--vscode-button-background);
+  --vscode-button-fg: var(--vscode-button-foreground);
+  --vscode-button-hover-bg: var(--vscode-button-hoverBackground);
+  --vscode-input-bg: var(--vscode-input-background);
+  --vscode-input-fg: var(--vscode-input-foreground);
+  --vscode-input-border: var(--vscode-input-border);
+  --vscode-dropdown-bg: var(--vscode-dropdown-background);
+  --vscode-dropdown-fg: var(--vscode-dropdown-foreground);
+  --vscode-dropdown-border: var(--vscode-dropdown-border);
+  --vscode-list-active-bg: var(--vscode-list-activeSelectionBackground);
+  --vscode-list-active-fg: var(--vscode-list-activeSelectionForeground);
+  --vscode-list-hover-bg: var(--vscode-list-hoverBackground);
+  --vscode-list-hover-fg: var(--vscode-list-hoverForeground);
+  --vscode-badge-bg: var(--vscode-badge-background);
+  --vscode-badge-fg: var(--vscode-badge-foreground);
+  
+  /* Tribe custom colors */
+  --tribe-primary: #6366f1;
+  --tribe-primary-light: #a4bcfc;
+  --tribe-primary-dark: #4338ca;
+  --tribe-secondary: #64748b;
+  --tribe-secondary-light: #94a3b8;
+  --tribe-secondary-dark: #334155;
+  --tribe-accent: #10b981;
+  --tribe-accent-light: #6ee7b7;
+  --tribe-accent-dark: #047857;
+  --tribe-error: #ef4444;
+  --tribe-warning: #f59e0b;
+  --tribe-success: #22c55e;
+  
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+  
+  /* Border radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  
+  /* Transitions */
+  --transition-fast: 150ms;
+  --transition-normal: 250ms;
+  --transition-slow: 350ms;
+  --transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --transition-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --transition-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Z-index */
+  --z-0: 0;
+  --z-10: 10;
+  --z-20: 20;
+  --z-30: 30;
+  --z-40: 40;
+  --z-50: 50;
+  --z-auto: auto;
+}
+
+/* Dark mode adjustments */
+.vscode-dark {
+  --tribe-primary-light: #819af9;
+  --tribe-secondary-light: #64748b;
+  --tribe-accent-light: #34d399;
+}
+
+/* Utility classes */
+.tribe-container {
+  padding: var(--space-4);
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.tribe-card {
+  background-color: color-mix(in srgb, var(--vscode-bg) 95%, var(--tribe-primary) 5%);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--vscode-border) 80%, transparent 20%);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-normal) var(--transition-ease);
+  overflow: hidden;
+}
+
+.tribe-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--tribe-primary) 30%, var(--vscode-border) 70%);
+}
+
+.tribe-card-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-border) 80%, transparent 20%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tribe-card-content {
+  padding: var(--space-4);
+}
+
+.tribe-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast) var(--transition-ease);
+  cursor: pointer;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  background-color: var(--vscode-button-bg);
+  color: var(--vscode-button-fg);
+}
+
+.tribe-button:hover {
+  background-color: var(--vscode-button-hover-bg);
+}
+
+.tribe-button:focus {
+  outline: 2px solid var(--vscode-focus);
+  outline-offset: 2px;
+}
+
+.tribe-button:active {
+  transform: translateY(1px);
+}
+
+.tribe-button-primary {
+  background-color: var(--tribe-primary);
+  color: white;
+}
+
+.tribe-button-primary:hover {
+  background-color: var(--tribe-primary-dark);
+}
+
+.tribe-button-secondary {
+  background-color: var(--tribe-secondary);
+  color: white;
+}
+
+.tribe-button-secondary:hover {
+  background-color: var(--tribe-secondary-dark);
+}
+
+.tribe-button-accent {
+  background-color: var(--tribe-accent);
+  color: white;
+}
+
+.tribe-button-accent:hover {
+  background-color: var(--tribe-accent-dark);
+}
+
+.tribe-button-ghost {
+  background-color: transparent;
+  border-color: var(--vscode-border);
+  color: var(--vscode-fg);
+}
+
+.tribe-button-ghost:hover {
+  background-color: color-mix(in srgb, var(--vscode-bg) 90%, var(--vscode-fg) 10%);
+}
+
+.tribe-button-danger {
+  background-color: var(--tribe-error);
+  color: white;
+}
+
+.tribe-button-danger:hover {
+  background-color: color-mix(in srgb, var(--tribe-error) 80%, black 20%);
+}
+
+.tribe-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tribe-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  background-color: var(--vscode-badge-bg);
+  color: var(--vscode-badge-fg);
+}
+
+.tribe-badge-primary {
+  background-color: var(--tribe-primary);
+  color: white;
+}
+
+.tribe-badge-secondary {
+  background-color: var(--tribe-secondary);
+  color: white;
+}
+
+.tribe-badge-accent {
+  background-color: var(--tribe-accent);
+  color: white;
+}
+
+.tribe-badge-error {
+  background-color: var(--tribe-error);
+  color: white;
+}
+
+.tribe-badge-warning {
+  background-color: var(--tribe-warning);
+  color: white;
+}
+
+.tribe-badge-success {
+  background-color: var(--tribe-success);
+  color: white;
+}
+
+.tribe-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--vscode-input-border);
+  background-color: var(--vscode-input-bg);
+  color: var(--vscode-input-fg);
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.tribe-input:focus {
+  outline: 2px solid var(--vscode-focus);
+  outline-offset: 2px;
+}
+
+.tribe-select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--vscode-dropdown-border);
+  background-color: var(--vscode-dropdown-bg);
+  color: var(--vscode-dropdown-fg);
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.tribe-select:focus {
+  outline: 2px solid var(--vscode-focus);
+  outline-offset: 2px;
+}
+
+.tribe-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--tribe-primary), var(--tribe-primary-dark));
+  color: white;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+}
+
+.tribe-avatar-sm {
+  width: 2rem;
+  height: 2rem;
+  font-size: var(--font-size-xs);
+}
+
+.tribe-avatar-lg {
+  width: 3rem;
+  height: 3rem;
+  font-size: var(--font-size-base);
+}
+
+.tribe-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tribe-divider {
+  width: 100%;
+  height: 1px;
+  background-color: var(--vscode-border);
+  margin: var(--space-4) 0;
+}
+
+.tribe-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tribe-secondary) transparent;
+}
+
+.tribe-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tribe-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tribe-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--tribe-secondary);
+  border-radius: var(--radius-full);
+}
+
+.tribe-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--tribe-secondary-dark);
+}
+
+/* Animation classes */
+.tribe-animate-pulse {
+  animation: tribe-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes tribe-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.tribe-animate-spin {
+  animation: tribe-spin 1s linear infinite;
+}
+
+@keyframes tribe-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tribe-animate-fade-in {
+  animation: tribe-fade-in 0.3s ease-out;
+}
+
+@keyframes tribe-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tribe-animate-slide-in {
+  animation: tribe-slide-in 0.3s ease-out;
+}
+
+@keyframes tribe-slide-in {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Layout utilities */
+.tribe-flex {
+  display: flex;
+}
+
+.tribe-flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.tribe-items-center {
+  align-items: center;
+}
+
+.tribe-justify-between {
+  justify-content: space-between;
+}
+
+.tribe-justify-center {
+  justify-content: center;
+}
+
+.tribe-gap-1 {
+  gap: var(--space-1);
+}
+
+.tribe-gap-2 {
+  gap: var(--space-2);
+}
+
+.tribe-gap-4 {
+  gap: var(--space-4);
+}
+
+.tribe-gap-6 {
+  gap: var(--space-6);
+}
+
+.tribe-gap-8 {
+  gap: var(--space-8);
+}
+
+.tribe-w-full {
+  width: 100%;
+}
+
+.tribe-h-full {
+  height: 100%;
+}
+
+.tribe-overflow-hidden {
+  overflow: hidden;
+}
+
+.tribe-overflow-auto {
+  overflow: auto;
+}
+
+.tribe-rounded {
+  border-radius: var(--radius-md);
+}
+
+.tribe-rounded-lg {
+  border-radius: var(--radius-lg);
+}
+
+.tribe-rounded-full {
+  border-radius: var(--radius-full);
+}
+
+/* Typography utilities */
+.tribe-text-xs {
+  font-size: var(--font-size-xs);
+}
+
+.tribe-text-sm {
+  font-size: var(--font-size-sm);
+}
+
+.tribe-text-base {
+  font-size: var(--font-size-base);
+}
+
+.tribe-text-lg {
+  font-size: var(--font-size-lg);
+}
+
+.tribe-text-xl {
+  font-size: var(--font-size-xl);
+}
+
+.tribe-text-2xl {
+  font-size: var(--font-size-2xl);
+}
+
+.tribe-font-medium {
+  font-weight: 500;
+}
+
+.tribe-font-semibold {
+  font-weight: 600;
+}
+
+.tribe-font-bold {
+  font-weight: 700;
+}
+
+.tribe-text-primary {
+  color: var(--tribe-primary);
+}
+
+.tribe-text-secondary {
+  color: var(--tribe-secondary);
+}
+
+.tribe-text-accent {
+  color: var(--tribe-accent);
+}
+
+.tribe-text-error {
+  color: var(--tribe-error);
+}
+
+.tribe-text-warning {
+  color: var(--tribe-warning);
+}
+
+.tribe-text-success {
+  color: var(--tribe-success);
+}
+
+.tribe-text-muted {
+  opacity: 0.7;
+}
+
+/* Responsive utilities */
+@media (max-width: 640px) {
+  .tribe-hidden-sm {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .tribe-hidden-md {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .tribe-hidden-lg {
+    display: none;
+  }
+} 

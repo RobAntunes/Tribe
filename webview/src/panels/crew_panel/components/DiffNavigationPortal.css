@@ -1,0 +1,570 @@
+.diff-navigation-portal {
+    display: flex;
+    height: 100%;
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+    border-radius: 6px;
+    border: 1px solid var(--vscode-panel-border);
+    overflow: hidden;
+}
+
+.diff-navigation-portal.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+.empty-state h3 {
+    margin-bottom: 0.5rem;
+    color: var(--vscode-foreground);
+}
+
+.diff-sidebar {
+    width: 250px;
+    border-right: 1px solid var(--vscode-panel-border);
+    overflow-y: auto;
+    background-color: var(--vscode-sideBar-background);
+}
+
+.conflict-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: var(--vscode-statusBarItem-warningBackground);
+    color: var(--vscode-statusBarItem-warningForeground);
+    font-size: 12px;
+}
+
+.sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.sidebar-tab {
+    flex: 1;
+    padding: 8px 12px;
+    text-align: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--vscode-tab-inactiveForeground);
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.sidebar-tab:hover {
+    background-color: var(--vscode-tab-hoverBackground);
+}
+
+.sidebar-tab.active {
+    color: var(--vscode-tab-activeForeground);
+    border-bottom-color: var(--vscode-tab-activeBorder);
+    background-color: var(--vscode-tab-activeBackground);
+}
+
+.groups-list {
+    padding: 12px;
+}
+
+.groups-list h3 {
+    font-size: 14px;
+    margin: 0 0 12px 0;
+    color: var(--vscode-foreground);
+    font-weight: 600;
+}
+
+.group-item {
+    margin-bottom: 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.group-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.group-item.active {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+    border-color: var(--vscode-focusBorder);
+}
+
+.group-header {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    font-size: 13px;
+}
+
+.group-title {
+    flex: 1;
+    margin: 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-count {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.group-item.active .file-count {
+    color: var(--vscode-list-activeSelectionForeground);
+    opacity: 0.8;
+}
+
+.group-files {
+    padding: 0 8px 8px 24px;
+}
+
+.file-type-group {
+    margin-bottom: 8px;
+}
+
+.file-type-header {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.file-item {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 3px;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.file-item.active {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.diff-main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.diff-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background-color: var(--vscode-editor-background);
+}
+
+.group-info h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.group-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 8px;
+}
+
+.agent-name {
+    font-weight: 500;
+}
+
+.group-description {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.group-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: flex-end;
+}
+
+.accept-group-button, .reject-group-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.2s ease;
+}
+
+.accept-group-button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.accept-group-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.reject-group-button {
+    background-color: var(--vscode-errorForeground);
+    color: white;
+}
+
+.reject-group-button:hover {
+    opacity: 0.9;
+}
+
+.file-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.navigation-controls, .file-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-counter {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.nav-button, .edit-button, .explanation-button, .annotations-button, .accept-file-button, .reject-file-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 3px;
+    background: none;
+    border: 1px solid var(--vscode-button-border, transparent);
+    color: var(--vscode-button-foreground);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.nav-button {
+    color: var(--vscode-foreground);
+}
+
+.nav-button:hover:not(:disabled) {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.nav-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.edit-button, .explanation-button, .annotations-button {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.edit-button:hover:not(:disabled), .explanation-button:hover:not(:disabled), .annotations-button:hover:not(:disabled) {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.accept-file-button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.accept-file-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.reject-file-button {
+    background-color: var(--vscode-errorForeground);
+    color: white;
+}
+
+.reject-file-button:hover {
+    opacity: 0.9;
+}
+
+.diff-content {
+    flex: 1;
+    padding: 16px;
+    overflow: auto;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+}
+
+.file-path {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background-color: var(--vscode-breadcrumb-background);
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-family: var(--vscode-font-family);
+    font-size: 13px;
+    color: var(--vscode-breadcrumb-foreground);
+    font-weight: 500;
+}
+
+.view-in-editor-button {
+    background: none;
+    border: none;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.view-in-editor-button:hover {
+    background-color: var(--vscode-textLink-activeForeground);
+    color: var(--vscode-editor-background);
+}
+
+.side-by-side {
+    display: flex;
+    gap: 16px;
+}
+
+.original-content, .new-content {
+    flex: 1;
+}
+
+.original-content h5, .new-content h5 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.original-content pre, .new-content pre {
+    margin: 0;
+    padding: 12px;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 4px;
+    overflow: auto;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.diff-hunks {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.diff-hunk {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.hunk-header {
+    padding: 8px 12px;
+    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.hunk-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+}
+
+.delete-file .delete-message {
+    padding: 16px;
+    background-color: var(--vscode-gitDecoration-deletedResourceForeground);
+    color: white;
+    border-radius: 4px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.edit-mode .edit-textarea {
+    width: 100%;
+    min-height: 300px;
+    padding: 12px;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.edit-mode .edit-textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.edit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: flex-end;
+}
+
+.save-button, .cancel-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.2s ease;
+}
+
+.save-button {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.save-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.cancel-button {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.cancel-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.explanation-mode .explanation-content {
+    padding: 16px;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+.explanation-mode .explanation-content h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: var(--vscode-foreground);
+}
+
+.explanation-mode .explanation-content p {
+    margin: 0;
+    line-height: 1.5;
+    font-size: 13px;
+}
+
+.back-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.back-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.group-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.group-counter {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* New styles for alternative implementations, conflict resolution, and annotations */
+
+/* Alternative implementations tab */
+.alternative-implementations {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* Conflict resolution tab */
+.conflict-resolution {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* Annotations tab */
+.collaborative-annotations {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .diff-navigation-portal {
+        flex-direction: column;
+    }
+    
+    .diff-sidebar {
+        width: 100%;
+        max-height: 300px;
+        border-right: none;
+        border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    
+    .side-by-side {
+        flex-direction: column;
+    }
+    
+    .original-content {
+        margin-right: 0;
+        padding-right: 0;
+        border-right: none;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--vscode-panel-border);
+    }
+} 

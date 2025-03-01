@@ -1,0 +1,147 @@
+.flows-container {
+    padding: 1rem;
+}
+
+.flow-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.flow-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--vscode-button-border);
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.flow-button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.flow-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.flow-output-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+}
+
+.flow-result {
+    margin-top: 1rem;
+}
+
+.result-object {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.result-item h4 {
+    margin: 0;
+    color: var(--vscode-editor-foreground);
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.result-item pre {
+    margin: 0;
+    padding: 0.5rem;
+    background: var(--vscode-textBlockQuote-background);
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.file-change {
+    margin-bottom: 0.5rem;
+}
+
+.file-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    cursor: pointer;
+    background: var(--vscode-list-hoverBackground);
+    border-radius: 4px;
+}
+
+.file-header:hover {
+    background: var(--vscode-list-activeSelectionBackground);
+}
+
+.file-content {
+    margin-left: 2rem;
+    padding: 0.5rem;
+    background: var(--vscode-textBlockQuote-background);
+    border-radius: 4px;
+}
+
+.file-content pre {
+    margin: 0;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+}
+
+.file-delete {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    color: var(--vscode-errorForeground);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.accept-button,
+.reject-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.accept-button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: 1px solid var(--vscode-button-border);
+}
+
+.reject-button {
+    background: var(--vscode-errorBackground);
+    color: var(--vscode-errorForeground);
+    border: 1px solid var(--vscode-errorForeground);
+}
+
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+.visualization-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+}

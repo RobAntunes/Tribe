@@ -1,0 +1,100 @@
+.agent-autonomy-panel {
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border-radius: 6px;
+}
+
+.agent-autonomy-panel h3,
+.agent-autonomy-panel h4,
+.agent-autonomy-panel h5 {
+    color: var(--vscode-editor-foreground);
+    margin-bottom: 1rem;
+}
+
+.autonomy-level-section select {
+    width: 100%;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+}
+
+.description {
+    font-size: 0.9rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+.task-type-criteria {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+}
+
+.criteria-controls label {
+    display: block;
+    margin-bottom: 1rem;
+}
+
+.criteria-controls input {
+    margin: 0 0.5rem;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.metric {
+    padding: 0.5rem;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+}
+
+.metric label {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+.history-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.history-entry {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--vscode-input-border);
+}
+
+.change-type {
+    margin-right: 0.5rem;
+}
+
+.change-type.increase {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.change-type.decrease {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.change-details {
+    margin-right: 1rem;
+}
+
+.reason {
+    flex: 1;
+    margin-right: 1rem;
+}
+
+.timestamp {
+    font-size: 0.8rem;
+    color: var(--vscode-descriptionForeground);
+} 

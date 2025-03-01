@@ -1,0 +1,167 @@
+/* Notification Center */
+.notification-center {
+    @apply relative;
+}
+
+.notification-badge {
+    @apply relative cursor-pointer p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800;
+}
+
+.notification-count {
+    @apply absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center;
+}
+
+.notification-list {
+    @apply absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50;
+}
+
+.notification-item {
+    @apply flex items-start p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-200 dark:border-gray-700;
+}
+
+.notification-item.unread {
+    @apply bg-blue-50 dark:bg-blue-900;
+}
+
+.notification-content {
+    @apply ml-3 flex-1;
+}
+
+.notification-message {
+    @apply text-sm text-gray-800 dark:text-gray-200;
+}
+
+.notification-time {
+    @apply text-xs text-gray-500 dark:text-gray-400;
+}
+
+/* Decision Hub */
+.decision-hub {
+    @apply p-4;
+}
+
+.decision-list {
+    @apply space-y-4;
+}
+
+.decision-card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-4;
+}
+
+.decision-header {
+    @apply flex justify-between items-center mb-4;
+}
+
+.impact-badge {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+}
+
+.deadline {
+    @apply flex items-center text-sm text-gray-500 dark:text-gray-400 space-x-1;
+}
+
+.decision-content {
+    @apply space-y-3;
+}
+
+.decision-type {
+    @apply text-lg font-semibold text-gray-900 dark:text-gray-100 capitalize;
+}
+
+.decision-description {
+    @apply text-sm text-gray-700 dark:text-gray-300;
+}
+
+.decision-options {
+    @apply flex flex-wrap gap-2 mt-2;
+}
+
+.option-button {
+    @apply px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600;
+}
+
+.decision-actions {
+    @apply flex justify-end space-x-2 mt-4;
+}
+
+.approve-button {
+    @apply flex items-center space-x-1 px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600;
+}
+
+.reject-button {
+    @apply flex items-center space-x-1 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600;
+}
+
+/* Project Overview */
+.project-overview {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6;
+}
+
+.vision-section {
+    @apply mb-6;
+}
+
+.vision-header {
+    @apply text-xl font-semibold mb-2 text-gray-900 dark:text-gray-100;
+}
+
+.vision-content {
+    @apply text-gray-700 dark:text-gray-300;
+}
+
+.phase-indicator {
+    @apply flex items-center space-x-2 mt-4;
+}
+
+.phase-label {
+    @apply text-sm font-medium text-gray-500 dark:text-gray-400;
+}
+
+.phase-value {
+    @apply text-sm font-semibold text-blue-500;
+}
+
+/* Agent Cards */
+.agent-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4;
+}
+
+.agent-card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow;
+}
+
+.agent-header {
+    @apply flex items-center space-x-3 mb-3;
+}
+
+.agent-avatar {
+    @apply w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg;
+}
+
+.agent-info {
+    @apply flex-1;
+}
+
+.agent-name {
+    @apply font-semibold text-gray-900 dark:text-gray-100;
+}
+
+.agent-role {
+    @apply text-sm text-gray-500 dark:text-gray-400;
+}
+
+.agent-status {
+    @apply text-xs px-2 py-1 rounded-full;
+}
+
+.agent-status.active {
+    @apply bg-green-100 text-green-800;
+}
+
+.agent-status.idle {
+    @apply bg-yellow-100 text-yellow-800;
+}
+
+.agent-status.busy {
+    @apply bg-red-100 text-red-800;
+}
