@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { DiffService } from '../services/diffService';
 import { CreateCheckpointPayload, CreateSubCheckpointPayload, RevertToSubCheckpointPayload } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -58,6 +58,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'CREATE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Create a checkpoint of the current workspace state',
 			),
 		),
@@ -70,6 +71,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					return storageService.getCheckpoints();
 				},
 				'GET_CHECKPOINTS',
+				ErrorCategory.SYSTEM,
 				'Get all checkpoints',
 			),
 		),
@@ -94,6 +96,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'RESTORE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Restore workspace to a checkpoint',
 			),
 		),
@@ -109,6 +112,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					return true;
 				},
 				'DELETE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Delete a checkpoint',
 			),
 		),
@@ -156,6 +160,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'VIEW_CHECKPOINT_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff between checkpoint and current state',
 			),
 		),
@@ -186,6 +191,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'CREATE_SUB_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Create a sub-checkpoint',
 			),
 		),
@@ -232,6 +238,7 @@ export function registerCheckpointCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'REVERT_TO_SUB_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Revert to a sub-checkpoint',
 			),
 		),

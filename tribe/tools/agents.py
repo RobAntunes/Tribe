@@ -107,22 +107,15 @@ class AutonomousCrewManager:
             DynamicTaskCreationTool()
         ]
         
-    def create_genesis_agent(self) -> Agent:
-        """Create the initial genesis agent"""
-        return Agent(
-            role="Genesis Manager",
-            goal="Create and manage an effective agent ecosystem",
-            backstory="""You are an expert in team building and management.
-            Your purpose is to create and evolve an effective agent ecosystem
-            that can handle complex tasks through collaboration.""",
-            tools=self.tools,
-            allow_delegation=True,
-            verbose=True
-        )
+    async def create_genesis_agent(self) -> Agent:
+        """Create the initial genesis agent using VP of Engineering"""
+        from tribe.core.dynamic import DynamicAgent
+        # Use the VP of Engineering as the genesis agent
+        return await DynamicAgent.create_vp_engineering("Team Management System")
     
-    def initialize_crew(self, objective: str) -> Crew:
-        """Initialize a crew with the genesis agent"""
-        genesis = self.create_genesis_agent()
+    async def initialize_crew(self, objective: str) -> Crew:
+        """Initialize a crew with the VP of Engineering as the genesis agent"""
+        genesis = await self.create_genesis_agent()
         
         # Create initial analysis task
         analysis_task = Task(

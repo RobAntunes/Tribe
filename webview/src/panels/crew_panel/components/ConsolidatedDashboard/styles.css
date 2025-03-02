@@ -1,0 +1,413 @@
+@import '../../components/common/styles.css';
+
+/* Main container */
+.consolidated-dashboard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 500px;
+  z-index: 10;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+/* Tab navigation */
+.dashboard-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  position: relative;
+  z-index: 20;
+}
+
+.tab-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--transition-ease);
+  background-color: transparent;
+  color: var(--vscode-foreground);
+}
+
+.tab-button.active {
+  background-color: var(--vscode-list-hoverBackground);
+  font-weight: 600;
+}
+
+.tab-button:hover:not(.active) {
+  background-color: color-mix(in srgb, var(--vscode-list-hoverBackground) 60%, transparent);
+}
+
+.tab-button svg {
+  color: var(--tribe-primary);
+}
+
+/* Tab content area */
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 400px;
+  width: 100%;
+  z-index: 20;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.tab-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  min-height: 300px;
+  background-color: var(--vscode-editor-background);
+}
+
+.dashboard-overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Overview cards grid */
+.overview-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+.overview-card {
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal) var(--transition-ease), 
+              transform var(--transition-normal) var(--transition-ease);
+}
+
+.overview-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* Card specific colors */
+.project-card {
+  border-top: 3px solid var(--tribe-success);
+}
+
+.tools-card {
+  border-top: 3px solid var(--tribe-info);
+}
+
+.learning-card {
+  border-top: 3px solid var(--tribe-accent);
+}
+
+/* Card headers */
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.card-title h4 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+
+.card-title svg {
+  color: var(--tribe-primary);
+}
+
+/* Card metrics */
+.card-metrics {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.metric-value {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--vscode-editor-foreground);
+}
+
+.metric-label {
+  font-size: var(--font-size-sm);
+  color: var(--vscode-descriptionForeground);
+  margin-top: var(--space-1);
+}
+
+/* Status indicators */
+.card-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.status-indicator {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.status-indicator.active {
+  background-color: var(--tribe-success-muted);
+  color: var(--tribe-success);
+}
+
+.status-indicator.inactive {
+  background-color: var(--tribe-error-muted);
+  color: var(--tribe-error);
+}
+
+/* Settings menu */
+.settings-menu-container {
+  position: relative;
+}
+
+.settings-cog-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background-color: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--transition-ease);
+  color: var(--vscode-foreground);
+}
+
+.settings-cog-button:hover {
+  background-color: var(--tribe-primary);
+  color: white;
+  border-color: var(--tribe-primary);
+  transform: rotate(15deg);
+}
+
+.settings-cog-button:active {
+  transform: rotate(30deg);
+}
+
+.settings-popover {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  width: 250px;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  animation: slideDown var(--transition-normal) var(--transition-ease-out);
+}
+
+.popover-header {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.popover-header h4 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+}
+
+.popover-content {
+  padding: var(--space-3) var(--space-4);
+}
+
+.popover-toggle {
+  margin-bottom: var(--space-4);
+}
+
+.popover-toggle label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toggle-button {
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-3);
+  min-width: 60px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.toggle-button.active {
+  background-color: var(--tribe-success);
+  color: white;
+  border-color: var(--tribe-success);
+}
+
+.popover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Agents section */
+.overview-agents {
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.overview-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.overview-section-header h4 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+
+.agent-avatars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.agent-avatar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.agent-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--tribe-primary), var(--tribe-primary-dark));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-normal) var(--transition-ease);
+}
+
+.agent-avatar-container:hover .agent-avatar {
+  transform: scale(1.1);
+}
+
+.agent-name {
+  font-size: var(--font-size-xs);
+  max-width: 80px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  text-align: center;
+  background-color: var(--vscode-editor-background);
+  border: 1px dashed var(--vscode-panel-border);
+  border-radius: var(--radius-md);
+  margin: var(--space-6) 0;
+}
+
+.empty-state p {
+  color: var(--vscode-descriptionForeground);
+  font-size: var(--font-size-base);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .overview-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  .tab-button {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-sm);
+  }
+  
+  .card-metrics {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  
+  .agent-avatars {
+    gap: var(--space-2);
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-tabs {
+    flex-direction: column;
+    gap: var(--space-1);
+    max-width: 100px;
+    margin-right: var(--space-2);
+  }
+  
+  .consolidated-dashboard {
+    display: flex;
+    flex-direction: row;
+  }
+  
+  .dashboard-content {
+    flex: 1;
+  }
+  
+  .settings-popover {
+    width: 200px;
+    right: -10px;
+  }
+  
+  .overview-card {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+}

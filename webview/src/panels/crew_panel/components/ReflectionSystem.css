@@ -1,0 +1,359 @@
+/* ReflectionSystem.css */
+.reflection-system {
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+  box-shadow: var(--shadow-sm);
+}
+
+.reflection-header {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--vscode-editor-background) 96%, var(--tribe-primary) 4%),
+    color-mix(in srgb, var(--vscode-editor-background) 98%, var(--tribe-accent) 2%)
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+}
+
+.reflection-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.reflection-title h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  margin: 0;
+}
+
+.reflection-icon {
+  color: var(--tribe-primary);
+}
+
+.reflection-tabs {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: var(--space-2);
+}
+
+.reflection-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.reflection-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.reflection-tabs::-webkit-scrollbar-thumb {
+  background-color: var(--tribe-secondary);
+  border-radius: var(--radius-full);
+}
+
+.reflection-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: transparent;
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+  border-radius: var(--radius-md);
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+.reflection-tab:hover {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-primary) 5%);
+  border-color: var(--tribe-primary);
+}
+
+.reflection-tab.active {
+  background: linear-gradient(135deg, 
+    color-mix(in srgb, var(--vscode-editor-background) 85%, var(--tribe-primary) 15%), 
+    color-mix(in srgb, var(--vscode-editor-background) 85%, var(--tribe-accent) 15%)
+  );
+  border-color: var(--tribe-primary);
+  color: var(--tribe-primary);
+  font-weight: 500;
+}
+
+.reflection-content {
+  flex: 1;
+  padding: var(--space-4);
+  overflow-y: auto;
+  background-color: var(--vscode-editor-background);
+}
+
+.form-group {
+  margin-bottom: var(--space-4);
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+
+.form-group select,
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+  border-radius: var(--radius-md);
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.form-group select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+  background-size: 16px;
+  padding-right: var(--space-6);
+}
+
+.form-group textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-group select:focus,
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--tribe-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tribe-primary) 30%, transparent);
+}
+
+.agent-selection,
+.type-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.agent-chip,
+.type-chip {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-secondary) 3%);
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-secondary) 10%);
+  color: var(--vscode-foreground);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+}
+
+.agent-chip:hover,
+.type-chip:hover {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-primary) 5%);
+  border-color: var(--tribe-primary);
+}
+
+.agent-chip.active,
+.type-chip.active {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 85%, var(--tribe-primary) 15%);
+  border-color: var(--tribe-primary);
+  color: var(--tribe-primary);
+  font-weight: 500;
+}
+
+.opportunities-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.opportunity-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.opportunity-item input {
+  flex: 1;
+}
+
+.remove-opportunity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in srgb, var(--tribe-error) 90%, transparent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+}
+
+.remove-opportunity:hover {
+  background-color: var(--tribe-error);
+  transform: scale(1.05);
+}
+
+.add-opportunity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background-color: transparent;
+  color: var(--vscode-foreground);
+  border: 1px dashed color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+}
+
+.add-opportunity:hover {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-primary) 5%);
+  border-color: var(--tribe-primary);
+}
+
+.create-button,
+.extract-button,
+.plan-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: linear-gradient(135deg, var(--tribe-primary), var(--tribe-primary-dark));
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+  margin-top: var(--space-2);
+  position: relative;
+  overflow: hidden;
+}
+
+.create-button::before,
+.extract-button::before,
+.plan-button::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, 
+    transparent 30%, 
+    rgba(255, 255, 255, 0.1) 70%, 
+    rgba(255, 255, 255, 0.2)
+  );
+  opacity: 0;
+  transition: opacity var(--transition-normal) var(--transition-ease);
+}
+
+.create-button:hover,
+.extract-button:hover,
+.plan-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.create-button:hover::before,
+.extract-button:hover::before,
+.plan-button:hover::before {
+  opacity: 1;
+}
+
+.create-button:disabled,
+.extract-button:disabled,
+.plan-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.success-message {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background-color: color-mix(in srgb, var(--tribe-success) 15%, var(--vscode-editor-background) 85%);
+  color: var(--tribe-success);
+  border: 1px solid var(--tribe-success);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.reflection-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-primary) 3%);
+  border-top: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+}
+
+.info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background-color: var(--vscode-editor-background);
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, var(--tribe-primary) 10%);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-normal) var(--transition-ease);
+}
+
+.info-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--tribe-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.info-card svg {
+  color: var(--tribe-primary);
+  margin-top: var(--space-1);
+}
+
+.info-content h3 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  margin: 0 0 var(--space-1);
+  color: var(--vscode-foreground);
+}
+
+.info-content p {
+  font-size: var(--font-size-xs);
+  color: var(--vscode-descriptionForeground);
+  margin: 0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

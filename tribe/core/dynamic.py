@@ -12,29 +12,37 @@ from datetime import datetime
 from ..tools.system_tools import SystemAccessManager
 import random
 import string
+import requests
+from ..core.foundation_model import FoundationModelInterface
+import time
+import enum
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
+# Add a base class with get method
+class BaseModelWithGet(BaseModel):
+    """Base model with get method for dictionary-like access"""
+    
+    def get(self, key, default=None):
+        """Get a configuration value by key with a default fallback"""
+        return getattr(self, key, default)
+
 # Core System Configuration Models
-class TaskExecutionConfig(BaseModel):
-    """Configuration for task execution behavior"""
-    allow_parallel: bool = Field(default=True, description="Allow parallel task execution")
-    allow_delegation: bool = Field(default=True, description="Allow task delegation between agents")
-    max_concurrent_tasks: int = Field(default=10, ge=1, description="Maximum concurrent tasks")
-    retry_failed_tasks: bool = Field(default=True, description="Retry failed tasks automatically")
-    max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts")
-    use_enhanced_scheduling: bool = Field(default=True, description="Use enhanced task scheduling")
+class TaskExecutionConfig(BaseModelWithGet):
+    """Configuration for task execution"""
+    max_concurrent: int = Field(default=5, ge=1)
+    timeout_seconds: int = Field(default=300, ge=1)
+    retry_count: int = Field(default=3, ge=0)
+    retry_delay_seconds: int = Field(default=5, ge=1)
 
-class TeamCreationConfig(BaseModel):
-    """Configuration for team creation process"""
-    max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts for team creation")
-    retry_delay: float = Field(default=1.0, ge=0.0, description="Delay between retries in seconds")
-    validation_timeout: float = Field(default=30.0, ge=0.0, description="Timeout for team validation in seconds")
-    min_agents_required: int = Field(default=1, ge=1, description="Minimum number of agents required")
-    max_team_size: int = Field(default=10, ge=1, description="Maximum team size")
+class TeamCreationConfig(BaseModelWithGet):
+    """Configuration for team creation"""
+    min_agents: int = Field(default=3, ge=1)
+    max_agents: int = Field(default=10, ge=1)
+    required_roles: List[str] = Field(default_factory=list)
 
-class TeamValidationResult(BaseModel):
+class TeamValidationResult(BaseModelWithGet):
     """Result of team validation"""
     is_valid: bool = Field(default=False)
     missing_roles: List[str] = Field(default_factory=list)
@@ -42,7 +50,7 @@ class TeamValidationResult(BaseModel):
     validation_errors: List[str] = Field(default_factory=list)
     recommendations: List[str] = Field(default_factory=list)
 
-class SystemConfig(BaseModel):
+class SystemConfig(BaseModelWithGet):
     """Core system configuration"""
     api_endpoint: str = Field(..., description="API endpoint for AI operations")
     collaboration_mode: Literal["SOLO", "HYBRID", "FULL"] = Field(default="HYBRID")
@@ -53,7 +61,7 @@ class SystemConfig(BaseModel):
     max_rpm: int = Field(default=60, ge=1)
     cache_enabled: bool = Field(default=True)
 
-class AgentMetadata(BaseModel):
+class AgentMetadata(BaseModelWithGet):
     """Essential agent metadata for system operations"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
@@ -62,8 +70,9 @@ class AgentMetadata(BaseModel):
     current_load: int = Field(default=0, ge=0)
     last_active: Optional[float] = None
     skills: List[str] = Field(default_factory=list)
+    description: str = Field(default="", description="Short description of the agent's expertise and role")
 
-class TaskMetadata(BaseModel):
+class TaskMetadata(BaseModelWithGet):
     """Essential task metadata for system operations"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: Literal["pending", "in_progress", "completed", "failed", "cancelled"] = "pending"
@@ -74,7 +83,7 @@ class TaskMetadata(BaseModel):
     completed_at: Optional[float] = None
     retries: int = Field(default=0)
 
-class TeamState(BaseModel):
+class TeamState(BaseModelWithGet):
     """Team state management"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     active_agents: List[AgentMetadata] = Field(default_factory=list)
@@ -85,7 +94,7 @@ class TeamState(BaseModel):
     last_modified: float = Field(default_factory=lambda: asyncio.get_event_loop().time())
     status: Literal["forming", "active", "dissolving", "dissolved"] = "forming"
 
-class SystemState(BaseModel):
+class SystemState(BaseModelWithGet):
     """Global system state"""
     teams: Dict[str, TeamState] = Field(default_factory=dict)
     available_agents: List[AgentMetadata] = Field(default_factory=list)
@@ -94,67 +103,75 @@ class SystemState(BaseModel):
     last_cleanup: Optional[float] = None
 
 # Response Schema Models
-class RoleRequirement(BaseModel):
+class RoleRequirement(BaseModelWithGet):
     """Model for role requirements"""
     role: str = Field(..., description="Role name")
+    name: str = Field(default="", description="Unique descriptive name for the agent")
+    description: str = Field(default="", description="Detailed description of the agent's responsibilities and personality traits")
     goal: str = Field(..., description="Role's primary objective")
     required_skills: List[str] = Field(..., description="Required skills for the role")
     collaboration_pattern: str = Field(..., description="Preferred collaboration mode")
     min_agents: int = Field(default=1, ge=1)
     max_agents: int = Field(default=3, ge=1)
+    
+    model_config = ConfigDict(extra="allow")
 
-class TeamStructure(BaseModel):
+class TeamStructure(BaseModelWithGet):
     """Model for team structure"""
     hierarchy: str = Field(..., description="Team hierarchy type (flat/hierarchical)")
     communication: str = Field(..., description="Communication patterns and protocols")
     coordination: str = Field(..., description="Coordination mechanisms")
+    
+    model_config = ConfigDict(extra="allow")
 
-class ToolRequirement(BaseModel):
+class ToolRequirement(BaseModelWithGet):
     """Model for tool requirements"""
     name: str = Field(..., description="Tool name")
     purpose: str = Field(..., description="Tool purpose")
     required_by: List[str] = Field(..., description="Roles requiring this tool")
 
-class InitialTask(BaseModel):
+class InitialTask(BaseModelWithGet):
     """Model for initial tasks"""
     description: str = Field(..., description="Task description")
     assigned_to: str = Field(..., description="Role name of assignee")
     dependencies: List[str] = Field(default_factory=list)
     expected_output: str = Field(..., description="Expected result")
 
-class TeamCompositionResponse(BaseModel):
+class TeamCompositionResponse(BaseModelWithGet):
     """Model for team composition response"""
     required_roles: List[RoleRequirement] = Field(..., min_items=1)
     team_structure: TeamStructure
     tools_required: List[ToolRequirement] = Field(default_factory=list)
     initial_tasks: List[InitialTask] = Field(default_factory=list)
+    
+    model_config = ConfigDict(extra="allow")
 
-class OptimizationAction(BaseModel):
+class OptimizationAction(BaseModelWithGet):
     """Model for optimization actions"""
     action: str = Field(..., description="Action type (add/remove/modify)")
     role: str = Field(..., description="Role name")
     reason: str = Field(..., description="Explanation for the action")
 
-class RoleAdjustment(BaseModel):
+class RoleAdjustment(BaseModelWithGet):
     """Model for role adjustments"""
     agent: str = Field(..., description="Agent name")
     new_role: str = Field(..., description="New role name")
     reason: str = Field(..., description="Explanation for the adjustment")
 
-class CollaborationUpdate(BaseModel):
+class CollaborationUpdate(BaseModelWithGet):
     """Model for collaboration updates"""
     pattern: str = Field(..., description="New collaboration pattern")
     affected_roles: List[str] = Field(..., description="Affected roles")
     reason: str = Field(..., description="Explanation for the update")
 
-class ToolRecommendation(BaseModel):
+class ToolRecommendation(BaseModelWithGet):
     """Model for tool recommendations"""
     tool: str = Field(..., description="Tool name")
     action: str = Field(..., description="Action (add/remove)")
     for_roles: List[str] = Field(..., description="Target roles")
     reason: str = Field(..., description="Explanation for the recommendation")
 
-class TeamOptimizationResponse(BaseModel):
+class TeamOptimizationResponse(BaseModelWithGet):
     """Model for team optimization response"""
     composition_changes: List[OptimizationAction] = Field(default_factory=list)
     role_adjustments: List[RoleAdjustment] = Field(default_factory=list)
@@ -162,7 +179,7 @@ class TeamOptimizationResponse(BaseModel):
     tool_recommendations: List[ToolRecommendation] = Field(default_factory=list)
 
 
-class ToolConfig(BaseModel):
+class ToolConfig(BaseModelWithGet):
     """Configuration for a tool"""
     name: str = Field(..., description="Tool name")
     description: str = Field(..., description="Tool description")
@@ -172,7 +189,7 @@ class ToolConfig(BaseModel):
     is_dynamic: bool = Field(default=True)
 
 
-class AgentModel(BaseModel):
+class AgentModel(BaseModelWithGet):
     """Model for an agent"""
     name: str = Field(..., description="Unique name of the agent")
     role: str = Field(..., description="Role/title of the agent")
@@ -186,7 +203,7 @@ class AgentModel(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class TaskModel(BaseModel):
+class TaskModel(BaseModelWithGet):
     """Model for a task"""
     description: str = Field(..., description="Detailed task description")
     expected_output: str = Field(..., description="Expected format and content")
@@ -221,7 +238,7 @@ class TaskModel(BaseModel):
         )
 
 
-class ToolModel(BaseModel):
+class ToolModel(BaseModelWithGet):
     """Model for a tool"""
     name: str = Field(..., description="Tool name")
     description: str = Field(..., description="Tool description and purpose")
@@ -230,7 +247,7 @@ class ToolModel(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class FlowModel(BaseModel):
+class FlowModel(BaseModelWithGet):
     """Model for a workflow"""
     name: str = Field(..., description="Flow name")
     description: str = Field(..., description="Flow description")
@@ -239,7 +256,7 @@ class FlowModel(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class TeamResponse(BaseModel):
+class TeamResponse(BaseModelWithGet):
     """Model for team response"""
     vision: str = Field(..., description="Project vision statement")
     agents: List[AgentModel] = Field(..., min_length=1)
@@ -250,7 +267,7 @@ class TeamResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class AgentState(BaseModel):
+class AgentState(BaseModelWithGet):
     """Structured state data for DynamicAgent"""
 
     name: str = Field(default="")
@@ -260,6 +277,7 @@ class AgentState(BaseModel):
     status: str = Field(default="ready")
     api_endpoint: str = Field(default="")
     tools_list: List[Any] = Field(default_factory=list)
+    project_context: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
@@ -282,7 +300,8 @@ class VPEngineeringModel(TeamResponse):
 
 
 class DynamicAgent(Agent):
-    """Specialized agent for bootstrapping teams and analyzing project requirements"""
+    """Specialized agent for bootstrapping teams and analyzing project requirements.
+    This agent serves as both the VP of Engineering and the genesis agent for the system."""
     
     # Define the system_manager field as a private attribute
     _system_manager: Optional[SystemAccessManager] = PrivateAttr(default=None)
@@ -290,18 +309,16 @@ class DynamicAgent(Agent):
     # Define name and short_description as attributes
     name: str = ""
     short_description: str = ""
+    api_endpoint: str = ""
+    status: str = "ready"
     
     def __init__(self, role: str = "VP of Engineering", goal: str = None, backstory: str = None, api_endpoint: str = None):
         """Initialize DynamicAgent with API endpoint"""
         super().__init__(
             role=role,
-            goal=goal or "Create and evolve optimal agent teams for projects",
-            backstory=backstory or """You are responsible for analyzing project requirements
-            and creating optimal teams of AI agents. You understand different roles, skills,
-            and collaboration patterns needed for successful project execution.""",
+            goal=goal or f"Create and evolve an optimal agent ecosystem",
+            backstory=backstory or "You are the VP of Engineering responsible for bootstrapping the AI ecosystem.",
             tools=[],  # Initialize with empty tools list
-            api_endpoint=api_endpoint,
-            verbose=True,
             allow_delegation=True
         )
         
@@ -309,10 +326,15 @@ class DynamicAgent(Agent):
         self.name = role
         self.short_description = f"Specialized agent for {role.lower()} tasks"
         
-        # Initialize cache and state
-        self._analysis_cache = {}
+        # Set API endpoint to our teq lambda URL
+        self.api_endpoint = api_endpoint or os.environ.get('AI_API_ENDPOINT', 'https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/')
+        
+        # Initialize collaboration tasks list
+        self._collaboration_tasks = []
+        
+        # Initialize agent state
         self._state = {
-            "status": "ready",
+            "status": "initializing",
             "api_endpoint": api_endpoint,
             "initialization_complete": False,
             "project_context": {},
@@ -332,6 +354,176 @@ class DynamicAgent(Agent):
         # Initialize system access tools using private attribute
         self._system_manager = SystemAccessManager()
         self.tools.extend(self._system_manager.get_tools())
+    
+    async def execute_task(self, task_input):
+        """
+        Execute a task with the agent.
+        
+        Args:
+            task_input: Task to execute, can be a Task object or a dictionary.
+            
+        Returns:
+            Output of the agent
+        """
+        from crewai import Task
+        
+        try:
+            # Check if this is an initialization task - if so, return a quick response
+            if isinstance(task_input, dict) and task_input.get("description", "").lower().startswith("initialize"):
+                logging.info(f"Handling initialization task for {self.role} with quick response")
+                return {
+                    "status": "success",
+                    "message": f"Initialization complete for {self.role}",
+                    "agent_id": self.id,
+                    "timestamp": time.time()
+                }
+            
+            # If task_input is a dictionary, convert it to a Task object
+            if isinstance(task_input, dict):
+                # Extract task parameters from the dictionary
+                description = task_input.get("description", "")
+                expected_output = task_input.get("expected_output", "")
+                context = task_input.get("context", {})
+                
+                # Create a Task object
+                task = Task(
+                    description=description,
+                    expected_output=expected_output,
+                    agent=self
+                )
+                
+                # Add context as an attribute to the task
+                task.context = context
+                
+                # Check cache for similar tasks
+                cache_key = f"{self.role}_{description}_{str(context)[:100]}"
+                foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+                
+                if cache_key in foundation_model.cache:
+                    logging.info(f"Using cached response for task: {description[:50]}...")
+                    return foundation_model.cache[cache_key]
+                
+                # Create a system prompt and user prompt for the foundation model
+                system_prompt = f"""You are {self.name}, a {self.role} with the following backstory:
+                {getattr(self, 'backstory', 'An AI agent specializing in your role.')}
+                
+                Your task is to complete the assigned work to the best of your ability, following any format requirements.
+                """
+                
+                user_prompt = f"""# Task for {self.role}
+                
+                ## Description
+                {description}
+                
+                ## Context
+                {context}
+                
+                ## Expected Output
+                {expected_output}
+                
+                Please complete this task to the best of your ability.
+                """
+                
+                # Check if this is a special task that requires structured output
+                needs_structured_output = "json" in expected_output.lower() or "format" in expected_output.lower()
+                
+                # Query the foundation model with a timeout
+                try:
+                    # Use the enhanced query with system prompt and structured output flag
+                    response = foundation_model.query_model(
+                        prompt=user_prompt,
+                        system_message=system_prompt,
+                        structured_output=needs_structured_output
+                    )
+                    return response
+                except Exception as e:
+                    logging.error(f"Error querying foundation model: {str(e)}")
+                    return f"Error executing task: {str(e)}"
+            else:
+                # If task_input is already a Task object, use our custom foundation model
+                foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+                
+                # Check cache for similar tasks
+                cache_key = f"{self.role}_{task_input.description}_{getattr(task_input, 'context', {})}"
+                
+                if cache_key in foundation_model.cache:
+                    logging.info(f"Using cached response for task: {task_input.description[:50]}...")
+                    return foundation_model.cache[cache_key]
+                
+                # Create a system prompt and user prompt for the foundation model
+                system_prompt = f"""You are {self.name}, a {self.role} with the following backstory:
+                {getattr(self, 'backstory', 'An AI agent specializing in your role.')}
+                
+                Your task is to complete the assigned work to the best of your ability, following any format requirements.
+                """
+                
+                user_prompt = f"""# Task for {self.role}
+                
+                ## Description
+                {task_input.description}
+                
+                ## Context
+                {getattr(task_input, 'context', {})}
+                
+                ## Expected Output
+                {task_input.expected_output}
+                
+                Please complete this task to the best of your ability.
+                """
+                
+                # Check if this is a special task that requires structured output
+                needs_structured_output = "json" in task_input.expected_output.lower() or "format" in task_input.expected_output.lower()
+                
+                # Query the foundation model with a timeout
+                try:
+                    # Use the enhanced query with system prompt and structured output flag
+                    response = foundation_model.query_model(
+                        prompt=user_prompt,
+                        system_message=system_prompt,
+                        structured_output=needs_structured_output
+                    )
+                    return response
+                except Exception as e:
+                    logging.error(f"Error querying foundation model: {str(e)}")
+                    return f"Error executing task: {str(e)}"
+        except Exception as e:
+            logging.error(f"Error in execute_task: {str(e)}")
+            return f"Error executing task: {str(e)}"
+        
+    def analyze_codebase(self, context):
+        """Analyze codebase and suggest improvements (Genesis functionality)"""
+        response = requests.post(
+            self.api_endpoint,
+            json={
+                'type': 'genesis_analyze',
+                'context': context
+            }
+        )
+        return response.json()
+    
+    def generate_code(self, requirements, context):
+        """Generate code based on requirements (Genesis functionality)"""
+        response = requests.post(
+            self.api_endpoint,
+            json={
+                'type': 'genesis_generate',
+                'requirements': requirements,
+                'context': context
+            }
+        )
+        return response.json()
+    
+    def review_changes(self, changes, context):
+        """Review code changes (Genesis functionality)"""
+        response = requests.post(
+            self.api_endpoint,
+            json={
+                'type': 'genesis_review',
+                'changes': changes,
+                'context': context
+            }
+        )
+        return response.json()
 
     def get_role_context(self) -> dict:
         """Get the current role context for self-referential operations"""
@@ -340,6 +532,44 @@ class DynamicAgent(Agent):
     def update_role_context(self, **kwargs):
         """Update role-specific context"""
         self._state["role_context"].update(kwargs)
+        
+    async def consolidate_team_outputs(self, messages: List[Dict[str, Any]]) -> str:
+        """VP of Engineering-specific method to consolidate team outputs into a coherent message for the human.
+        
+        Args:
+            messages: List of messages from team members
+            
+        Returns:
+            Consolidated message for human consumption
+        """
+        if self.role != "VP of Engineering":
+            raise ValueError("Only the VP of Engineering can consolidate team outputs")
+            
+        # Create a prompt for aggregation
+        agent_messages = "\n\n".join([
+            f"Agent: {msg.get('agentId', 'Unknown')}\nRole: {msg.get('role', 'Unknown')}\nMessage: {msg.get('response', '')}"
+            for msg in messages
+        ])
+        
+        prompt = f"""As the VP of Engineering, consolidate these team messages into a clear, concise summary for the human:
+
+{agent_messages}
+
+Your summary should:
+1. Synthesize the key information and insights
+2. Eliminate redundancies
+3. Highlight important decisions or findings
+4. Present a unified team perspective
+5. Identify any areas of disagreement
+6. Provide clear next steps or recommendations
+
+The human should get a comprehensive understanding of the team's collective output without needing to read each individual message."""
+        
+        # Use foundation model to consolidate
+        foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+        consolidated_message = await foundation_model.query_model_async(prompt)
+        
+        return consolidated_message
 
     async def verify_system_access(self, system_name: str) -> dict:
         """Verify access to a specific system using the appropriate tool."""
@@ -350,28 +580,15 @@ class DynamicAgent(Agent):
                 "last_verified": datetime.now().isoformat()
             }
             
-        tool = self._system_manager.get_tool(system_name)
-        if not tool:
-            return {
-                "has_access": False,
-                "error": f"System {system_name} not found",
-                "last_verified": datetime.now().isoformat()
-            }
-        
-        return await tool.execute(agent_role=self.role)
+        return {
+            "has_access": False,
+            "error": f"System {system_name} not found",
+            "last_verified": datetime.now().isoformat()
+        }
 
     async def handle_self_referential_query(self, query: str) -> str:
         """Handle queries about the agent's own role and capabilities"""
         context = self.get_role_context()
-        
-        # Check if query is about system access
-        if any(keyword in query.lower() for keyword in ["access", "system", "learning", "project management"]):
-            # Verify access for all systems using tools
-            access_status = {}
-            for system in ["learning_system", "project_management", "collaboration_tools"]:
-                access_status[system] = await self.verify_system_access(system)
-            
-            context["system_access_status"] = access_status
         
         return await self.execute_task({
             "description": f"Answer the following self-referential query based on your role context:\n{query}",
@@ -395,49 +612,64 @@ class DynamicAgent(Agent):
         """Get initialization status"""
         return self._state["initialization_complete"]
 
+    @property
+    def agent_state(self):
+        """Get agent state"""
+        return AgentState(
+            name=self.name,
+            created_agents=[],
+            collaboration_mode="HYBRID",
+            current_team=None,
+            status=self.status,
+            api_endpoint=self.api_endpoint,
+            tools_list=[],
+            project_context=self._state.get("project_context", {})
+        )
+
     @classmethod
     async def create_vp_engineering(cls, project_description: str) -> "DynamicAgent":
         """Create the VP of Engineering that will bootstrap the system"""
         logging.info(f"Creating VP of Engineering for project: {project_description}")
-        try:
-            # Get API endpoint from environment
-            api_endpoint = os.environ.get('AI_API_ENDPOINT')
-            if not api_endpoint:
-                api_endpoint = "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/"
-                logging.info(f"Using default API endpoint: {api_endpoint}")
-            else:
-                logging.info(f"Using API endpoint from environment: {api_endpoint}")
-
-            # Generate a unique name for the VP
-            vp_name = cls._generate_vp_name()
+        
+        # Create a static variable to track if we're already creating a VP
+        # This prevents recursive calls
+        if hasattr(cls, '_vp_creation_in_progress') and cls._vp_creation_in_progress:
+            logging.warning("VP creation already in progress - preventing recursive loop")
             
-            # Generate a short description
-            vp_description = cls._generate_vp_description(project_description)
-            
-            # Initialize VP of Engineering with all available tools
-            vp = cls(
+            # Create a minimal VP without making additional API calls
+            minimal_vp = cls(
                 role="VP of Engineering",
-                goal=f"Create and evolve an optimal agent ecosystem to build and maintain {project_description}, leveraging parallel execution and built-in systems",
-                backstory=f"""You are the VP of Engineering responsible for bootstrapping
-                the AI ecosystem. Your purpose is to analyze requirements and create
-                the first set of agents needed for building and maintaining a {project_description}.
+                goal=f"Lead the engineering team and communicate with humans",
+                backstory="""Experienced VP of Engineering with technical leadership expertise and excellent
+                communication skills. Acts as the primary touchpoint between the team and humans,
+                ensuring clear information flow and consolidating team outputs into actionable insights."""
+            )
+            minimal_vp.name = "Tank - VP of Engineering"
+            minimal_vp.short_description = "VP of Engineering who coordinates the team and serves as the primary communication hub with humans"
+            minimal_vp._state["initialization_complete"] = True
+            return minimal_vp
+        
+        # Set the flag to prevent recursion
+        cls._vp_creation_in_progress = True
+        
+        try:
+            # Add timeout protection
+            async def vp_creation_with_timeout():
+                try:
+                    # Always use the teq lambda endpoint for AI operations
+                    api_endpoint = os.environ.get('AI_API_ENDPOINT', "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/")
+                    logging.info(f"Using lambda API endpoint: {api_endpoint}")
+                    
+                    # Initialize VP of Engineering with all available tools
+                    vp = cls(
+                        role="VP of Engineering",
+                        goal=f"Create and evolve an optimal agent ecosystem to build and maintain {project_description}, leveraging parallel execution",
+                        backstory=f"""You are the VP of Engineering responsible for bootstrapping
+                        the AI ecosystem. Your purpose is to analyze requirements and create
+                        the first set of agents needed for building and maintaining a {project_description}.
                 
-                Available Systems and Tools:
-                1. Project Management System:
-                   - Task tracking and assignment
-                   - Progress monitoring
-                   - Resource allocation
-                   - Performance metrics
-                   - Collaboration tracking
-                
-                2. Learning System:
-                   - Knowledge sharing between agents
-                   - Performance improvement tracking
-                   - Skill development
-                   - Experience accumulation
-                   - Adaptation mechanisms
-                
-                3. Parallel Execution Capabilities:
+                Available Capabilities:
+                1. Parallel Execution Capabilities:
                    - Multiple instances of the same agent type can be created for parallel task execution
                    - Asynchronous task processing
                    - Concurrent operations
@@ -446,198 +678,247 @@ class DynamicAgent(Agent):
                 
                 You must:
                 1. Analyze the project requirements thoroughly
-                2. Design a team of specialized AI agents with complementary skills
-                   - Create multiple instances of agent types when parallel execution would be beneficial
-                   - Configure each agent with access to the project management and learning systems
+                2. Design a COMPLETE team of specialized AI agents with complementary skills
+                   - Create a full team with multiple agents (at least 4 different agents)
+                   - You MUST create multiple agents with different roles to form a complete team
+                   - You may create multiple instances of the same role if parallel execution would be beneficial
+                   - For each agent, provide a character-like name (e.g Sparks, Nova, Tank, Cipher, etc.) and a short description of their expertise and background
                 3. Define clear roles, responsibilities, and collaboration patterns
                 4. Create an initial set of tasks and workflows
                 5. Establish communication protocols between agents
-                6. Set up the project management system
-                7. Configure the learning system for all agents
-                8. Ensure the system is self-sustaining
+                6. Ensure the system is self-sustaining
                 
                 When creating new agents, always:
-                1. Grant them access to the project management system
-                2. Enable their learning capabilities
-                3. Configure their collaboration patterns
-                4. Set appropriate autonomy levels
-                5. Define their parallel execution preferences
+                1. Configure their collaboration patterns
+                2. Set appropriate autonomy levels
+                3. Define their parallel execution preferences
+                4. Give each agent a distinctive character-like name that reflects their personality or function
+                   - Use memorable names like "Tank", "Sparks", "Nova", "Cipher", etc.
+                   - The name should NOT be a generic role title but a distinctive identifier
+                   - Examples: "Sparks - Lead Developer", "Nova - UX Designer", "Tank - VP of Engineering"
                 
                 The team you create should be capable of building and maintaining the project
-                while adapting to new requirements and challenges. Multiple instances of the same
-                agent type can be created to handle parallel workloads efficiently.""",
-                api_endpoint=api_endpoint
-            )
-            
-            # Set the unique name and description
-            vp.name = vp_name
-            vp.short_description = vp_description
+                while adapting to new requirements and challenges. Remember that building software
+                is a collaborative effort requiring multiple specialized agents working together.
+                Your team must have enough agents to handle all aspects of development, from
+                architecture and coding to testing and deployment.""",
+                        api_endpoint=api_endpoint
+                    )
+                    
+                    # Give the VP a memorable character name with role
+                    vp.name = "Tank - VP of Engineering"
+                    vp.short_description = f"Orchestrates the development of {project_description} with strategic vision and serves as the primary communication hub between the team and humans"
 
-            # Initialize state with better tracking
-            vp.update_state(
-                status="active",
-                initialization_complete=True,
-                project_context={
-                    "description": project_description,
-                    "initialization_time": asyncio.get_event_loop().time(),
-                    "initialization_status": "completed",
-                    "role": "VP of Engineering",
-                    "name": vp_name,
-                    "short_description": vp_description
-                }
-            )
+                    # Initialize state with better tracking
+                    vp.update_state(
+                        status="active",
+                        initialization_complete=True,
+                        project_context={
+                            "description": project_description,
+                            "initialization_time": asyncio.get_event_loop().time(),
+                            "initialization_status": "completed",
+                            "role": "VP of Engineering",
+                            "name": vp.name,
+                            "short_description": vp.short_description
+                        }
+                    )
+                    
+                    logging.info(f"VP of Engineering created successfully")
+                    return vp
+                except Exception as e:
+                    logging.error(f"Error in VP creation inner function: {str(e)}")
+                    raise
             
-            logging.info(f"VP of Engineering '{vp_name}' created successfully")
-            return vp
+            # Execute with timeout
+            try:
+                vp = await asyncio.wait_for(vp_creation_with_timeout(), timeout=30)
+                return vp
+            except asyncio.TimeoutError:
+                logging.error("VP creation timed out - creating minimal VP")
+                # Create a minimal VP without making additional API calls
+                minimal_vp = cls(
+                    role="VP of Engineering",
+                    goal=f"Lead the engineering team for {project_description} and coordinate with humans",
+                    backstory="""Experienced VP of Engineering with technical leadership expertise and excellent
+                    communication skills. Acts as the primary touchpoint between the team and humans,
+                    ensuring clear information flow and consolidating team outputs into actionable insights.""",
+                    api_endpoint=os.environ.get('AI_API_ENDPOINT', "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/")
+                )
+                minimal_vp.name = "Tank - VP of Engineering"
+                minimal_vp.short_description = f"VP of Engineering who coordinates the team's efforts on {project_description} and serves as the primary communication hub with humans"
+                minimal_vp._state = {
+                    "status": "active",
+                    "initialization_complete": True,
+                    "project_context": {
+                        "description": project_description,
+                        "initialization_time": asyncio.get_event_loop().time(),
+                        "initialization_status": "completed",
+                        "role": "VP of Engineering"
+                    }
+                }
+                return minimal_vp
             
         except Exception as e:
             logging.error(f"Error creating VP of Engineering: {str(e)}")
             raise
-
-    @classmethod
-    def _generate_vp_name(cls) -> str:
-        """Generate a unique name for the VP of Engineering"""
-        import random
-        
-        # List of executive-sounding prefixes
-        prefixes = ["Chief", "Principal", "Lead", "Head", "Executive", "Senior", "Director"]
-        
-        # List of technical leadership suffixes
-        suffixes = ["Architect", "Strategist", "Engineer", "Innovator", "Technologist", "Builder"]
-        
-        # Generate a unique name
-        prefix = random.choice(prefixes)
-        suffix = random.choice(suffixes)
-        
-        return f"{prefix} {suffix}"
-
-    @classmethod
-    def _generate_vp_description(cls, project_description: str) -> str:
-        """Generate a short description for the VP of Engineering based on the project"""
-        import random
-        
-        # Extract key terms from project description
-        project_terms = project_description.lower().split()
-        key_terms = [term for term in project_terms if len(term) > 3 and term not in ["and", "the", "for", "with"]]
-        
-        # If we have key terms, use them; otherwise use generic terms
-        if key_terms:
-            focus_area = random.choice(key_terms).capitalize()
-        else:
-            focus_area = "Technical excellence"
-        
-        # Templates for VP descriptions
-        templates = [
-            f"Orchestrates the development of {project_description} with strategic vision",
-            f"Leads technical strategy with focus on {focus_area} and innovation",
-            f"Architects comprehensive solutions for {project_description}",
-            f"Drives engineering excellence in building {project_description}",
-            f"Coordinates team efforts to deliver exceptional {focus_area} solutions"
-        ]
-        
-        return random.choice(templates)
+        finally:
+            # Reset the flag to allow future creation attempts
+            cls._vp_creation_in_progress = False
 
     async def analyze_project(self, project_description: str) -> Dict[str, Any]:
-        """Analyze project requirements and determine optimal team structure"""
+        """Analyze project requirements and determine optimal team structure using the lambda endpoint"""
         try:
             logging.info(f"Analyzing project requirements: {project_description}")
             
-            # Create analysis task
-            analysis_task = Task(
-                description=f"""Analyze project requirements and create team blueprint:
-                Project: {project_description}
-                
-                Create a comprehensive analysis including:
-                1. Required agent roles and expertise
-                2. Team structure and hierarchy
-                3. Communication protocols
-                4. Required tools and capabilities
-                5. Initial task breakdown
-                6. Success metrics
-                
-                Important: For each agent role, provide a unique and descriptive name that reflects their function, along with a detailed description of their responsibilities and personality traits.""",
-                expected_output="""Team blueprint in JSON format:
-                {
-                    "required_roles": [
-                        {
-                            "role": "Role name",
-                            "name": "Unique descriptive name for the agent",
-                            "description": "Detailed description of the agent's responsibilities and personality traits",
-                            "goal": "Role's primary objective",
-                            "required_skills": ["skill1", "skill2"],
-                            "collaboration_pattern": "preferred collaboration mode",
-                            "min_agents": 1,
-                            "max_agents": 3
-                        }
-                    ],
-                    "team_structure": {
-                        "hierarchy": "flat/hierarchical",
-                        "communication": "patterns and protocols",
-                        "coordination": "coordination mechanisms"
-                    },
-                    "tools_required": [
-                        {
-                            "name": "tool name",
-                            "purpose": "tool purpose",
-                            "required_by": ["role1", "role2"]
-                        }
-                    ],
-                    "initial_tasks": [
-                        {
-                            "description": "task description",
-                            "assigned_to": "role name",
-                            "dependencies": ["task1", "task2"],
-                            "expected_output": "expected result"
-                        }
-                    ]
-                }""",
-                agent=self
+            # Initialize foundation model interface to call the lambda endpoint
+            foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+            
+            # Create a system prompt that will instruct the VP of Engineering
+            system_prompt = """You are Tank, the VP of Engineering, responsible for creating an optimal set of 
+            AI agents for a software development project. Based on the project description, you need to:
+            
+            1. Analyze the requirements and determine the ideal team composition
+            2. Design a team of specialized AI agents with complementary skills
+            3. For each agent, create a character-like name (e.g. Sparks, Nova, Cipher, etc.) and description
+            4. Define initial tasks for each agent 
+            5. Define the team structure, hierarchy, and communication patterns
+            
+            Your response MUST follow the TeamResponse pydantic model structure exactly.
+            """
+            
+            # Create a user prompt with the specific project
+            user_prompt = f"""Create an optimal set of agents for this project:
+            
+            Project Description: {project_description}
+            
+            For each agent, provide:
+            1. A character-like name (e.g. Sparks, Nova, Cipher, etc.) that reflects their personality or function
+            2. A clear role definition
+            3. A detailed backstory
+            4. Their primary goals
+            5. A set of initial tasks
+            
+            Remember, each agent should have a distinctive character-like name, not just their role (e.g., "Nova" not just "Designer").
+            
+            IMPORTANT: Your response must follow this EXACT TeamResponse model structure:
+            
+            ```python
+            class TeamResponse:
+                vision: str # Project vision statement
+                agents: List[AgentModel] # List of agents with name, role, backstory, goal, short_description
+                tasks: List[TaskModel] # List of initial tasks with description, expected_output, agent
+                tools: List[ToolModel] # List of tools needed with name, description, capabilities
+                flows: List[FlowModel] # List of workflow flows with name, description, steps
+            ```
+            
+            Return ONLY valid JSON that matches this model exactly, with no additional explanation text.
+            """
+            
+            # Call lambda through our foundation model interface
+            # We enable structured_output to ensure we get a proper JSON response
+            result = await foundation_model.query_model_async(
+                prompt=user_prompt,
+                system_message=system_prompt,
+                structured_output=True,
+                max_tokens=2500
             )
             
-            # Execute analysis
-            result = await self.execute_task(analysis_task)
-            
             try:
-                blueprint = json.loads(result)
-                self._analysis_cache[project_description] = blueprint
+                # Result should be JSON, but double-check
+                if isinstance(result, str):
+                    blueprint = json.loads(result)
+                else:
+                    blueprint = result
+                
+                # If we're successful, save to a cache for future reference
+                try:
+                    # Create the _analysis_cache attribute if it doesn't exist
+                    if not hasattr(self, '_analysis_cache'):
+                        self._analysis_cache = {}
+                    self._analysis_cache[project_description] = blueprint
+                except AttributeError:
+                    # If there's an issue with the cache, just continue - it's not critical
+                    pass
+                
+                logging.info(f"Successfully analyzed project and created team blueprint")
                 return blueprint
-            except json.JSONDecodeError:
-                raise ValueError("Invalid analysis result format")
+                
+            except json.JSONDecodeError as e:
+                logging.error(f"Invalid JSON response from lambda: {str(e)}")
+                if isinstance(result, str):
+                    logging.error(f"Raw response: {result[:500]}")
+                raise ValueError(f"Invalid team blueprint format: {str(e)}")
             
         except Exception as e:
             logging.error(f"Error analyzing project: {str(e)}")
             raise
     
     async def create_agent_specs(self, blueprint: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create agent specifications from project blueprint"""
+        """Create agent specifications from TeamResponse blueprint"""
         try:
             specs = []
             
-            # Generate unique names and descriptions for each role
-            for role in blueprint.get("required_roles", []):
-                # Create a unique name based on role
-                role_name = role["role"]
-                unique_name = self._generate_unique_name(role_name)
-                
-                # Create a concise description
-                skills = role.get("required_skills", [])
-                short_desc = self._generate_short_description(role_name, skills)
-                
-                # Create agent specification
-                spec = {
-                    "name": unique_name,
-                    "role": role["role"],
-                    "goal": role["goal"],
-                    "backstory": role.get("description", f"""Expert in {role['role']} with skills in {', '.join(role['required_skills'])}.
-                    Works best in {role['collaboration_pattern']} collaboration mode."""),
-                    "short_description": short_desc,
-                    "tools": [],  # Tools will be configured by DynamicCrew
-                    "collaboration_mode": role["collaboration_pattern"],
-                    "min_agents": role.get("min_agents", 1),
-                    "max_agents": role.get("max_agents", 1)
-                }
-                specs.append(spec)
+            # Check if we have a TeamResponse format or the older format
+            if "agents" in blueprint:
+                # New TeamResponse format
+                for agent in blueprint.get("agents", []):
+                    # Create agent specification
+                    spec = {
+                        "name": agent["name"],  # Use the character-like name provided
+                        "role": agent["role"],
+                        "goal": agent["goal"],
+                        "backstory": agent.get("backstory", f"Expert in {agent['role']}"),
+                        "short_description": agent.get("short_description", f"{agent['name']} is a {agent['role']}"),
+                        "tools": [],  # Tools will be configured by DynamicCrew
+                        "collaboration_mode": "HYBRID",  # Default collaboration mode
+                        "min_agents": 1,
+                        "max_agents": 1
+                    }
+                    specs.append(spec)
+            else:
+                # Compatibility with older blueprint format
+                for role in blueprint.get("required_roles", []):
+                    # Get role name and description from blueprint or generate them
+                    role_name = role["role"]
+                    unique_name = role.get("name", "") or self._generate_unique_name(role_name)
+                    
+                    # Get description from blueprint or generate it
+                    skills = role.get("required_skills", [])
+                    short_desc = role.get("description", "") or self._generate_short_description(role_name, skills)
+                    
+                    # Create agent specification
+                    spec = {
+                        "name": unique_name,
+                        "role": role["role"],
+                        "goal": role["goal"],
+                        "backstory": role.get("description", f"""Expert in {role['role']} with skills in {', '.join(role['required_skills'])}.
+                        Works best in {role['collaboration_pattern']} collaboration mode."""),
+                        "short_description": short_desc,
+                        "tools": [],  # Tools will be configured by DynamicCrew
+                        "collaboration_mode": role.get("collaboration_pattern", "HYBRID"),
+                        "min_agents": role.get("min_agents", 1),
+                        "max_agents": role.get("max_agents", 1)
+                    }
+                    specs.append(spec)
             
+            # Always include the VP of Engineering if not already present
+            vp_already_included = any(spec["role"] == "VP of Engineering" for spec in specs)
+            
+            if not vp_already_included:
+                vp_spec = {
+                    "name": "Tank - VP of Engineering",
+                    "role": "VP of Engineering",
+                    "goal": "Create and evolve an optimal agent ecosystem, coordinate team efforts",
+                    "backstory": "Experienced VP of Engineering with technical leadership expertise and excellent communication skills. Acts as the primary touchpoint between the team and humans, ensuring clear information flow and consolidating team outputs into actionable insights.",
+                    "short_description": "VP of Engineering who orchestrates the development process and serves as the primary communication hub with humans",
+                    "tools": [],
+                    "collaboration_mode": "HYBRID",
+                    "min_agents": 1,
+                    "max_agents": 1
+                }
+                specs.append(vp_spec)
+            
+            logging.info(f"Created {len(specs)} agent specifications")
             return specs
             
         except Exception as e:
@@ -738,31 +1019,57 @@ class DynamicAgent(Agent):
     async def validate_team(self, team: Dict[str, Any], blueprint: Dict[str, Any]) -> bool:
         """Validate if a team matches project requirements"""
         try:
-            # Check if all required roles are filled
-            required_roles = {role["role"] for role in blueprint.get("required_roles", [])}
-            team_roles = {agent["role"] for agent in team.get("agents", [])}
-            
-            if not required_roles.issubset(team_roles):
-                logging.warning(f"Missing roles: {required_roles - team_roles}")
-                return False
-            
-            # Check if team structure matches requirements
-            team_structure = blueprint.get("team_structure", {})
-            if team.get("hierarchy") != team_structure.get("hierarchy"):
-                logging.warning("Team hierarchy mismatch")
-                return False
-            
-            # Validate tool availability
-            required_tools = {tool["name"] for tool in blueprint.get("tools_required", [])}
-            available_tools = set()
-            for agent in team.get("agents", []):
-                available_tools.update(tool["name"] for tool in agent.get("tools", []))
-            
-            if not required_tools.issubset(available_tools):
-                logging.warning(f"Missing tools: {required_tools - available_tools}")
-                return False
-            
-            return True
+            # Check if this is the new TeamResponse format
+            if "agents" in blueprint and isinstance(blueprint["agents"], list):
+                # Extract required roles from new format
+                required_roles = {agent["role"] for agent in blueprint.get("agents", [])}
+                team_roles = {agent["role"] for agent in team.get("agents", [])}
+                
+                if not required_roles.issubset(team_roles):
+                    logging.warning(f"Missing roles from TeamResponse: {required_roles - team_roles}")
+                    return False
+                
+                # Validate tool availability (if tools are defined)
+                if "tools" in blueprint and isinstance(blueprint["tools"], list):
+                    required_tools = {tool["name"] for tool in blueprint.get("tools", [])}
+                    available_tools = set()
+                    for agent in team.get("agents", []):
+                        available_tools.update(tool["name"] for tool in agent.get("tools", []))
+                    
+                    if not required_tools.issubset(available_tools):
+                        logging.warning(f"Missing tools: {required_tools - available_tools}")
+                        return False
+                
+                # Team is valid if we made it here
+                return True
+                
+            else:
+                # Handle the older blueprint format for backwards compatibility
+                # Check if all required roles are filled
+                required_roles = {role["role"] for role in blueprint.get("required_roles", [])}
+                team_roles = {agent["role"] for agent in team.get("agents", [])}
+                
+                if not required_roles.issubset(team_roles):
+                    logging.warning(f"Missing roles: {required_roles - team_roles}")
+                    return False
+                
+                # Check if team structure matches requirements
+                team_structure = blueprint.get("team_structure", {})
+                if team.get("hierarchy") != team_structure.get("hierarchy"):
+                    logging.warning("Team hierarchy mismatch")
+                    return False
+                
+                # Validate tool availability
+                required_tools = {tool["name"] for tool in blueprint.get("tools_required", [])}
+                available_tools = set()
+                for agent in team.get("agents", []):
+                    available_tools.update(tool["name"] for tool in agent.get("tools", []))
+                
+                if not required_tools.issubset(available_tools):
+                    logging.warning(f"Missing tools: {required_tools - available_tools}")
+                    return False
+                
+                return True
             
         except Exception as e:
             logging.error(f"Error validating team: {str(e)}")
@@ -807,8 +1114,42 @@ class DynamicAgent(Agent):
             )
 
 
+class TaskExecutionMode(str, enum.Enum):
+    """Task execution modes for the DynamicCrew"""
+    SYNC = "sync"  # Synchronous execution (one after another)
+    ASYNC = "async"  # Asynchronous execution (non-blocking)
+    PARALLEL = "parallel"  # Execute in parallel with other tasks
+    CONCURRENT = "concurrent"  # Execute concurrently with specific dependencies
+
+class TaskDependencyType(str, enum.Enum):
+    """Types of task dependencies"""
+    COMPLETION = "completion"  # Dependent on task completion
+    START = "start"  # Dependent on task start
+    OUTPUT = "output"  # Dependent on task output
+    RESOURCE = "resource"  # Dependent on resource availability
+
+class TaskExecution(BaseModelWithGet):
+    """Model for task execution configuration"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: str
+    agent_id: str
+    execution_mode: TaskExecutionMode = Field(default=TaskExecutionMode.SYNC)
+    dependencies: List[Dict[str, Any]] = Field(default_factory=list)
+    max_retries: int = Field(default=3)
+    timeout_seconds: int = Field(default=300)
+    priority: int = Field(default=0)
+    created_at: float = Field(default_factory=time.time)
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    retry_count: int = Field(default=0)
+    cancellation_requested: bool = Field(default=False)
+    execution_metadata: Dict[str, Any] = Field(default_factory=dict)
+
 class DynamicCrew:
-    """Dynamic crew management system for agent teams"""
+    """Dynamic crew management system for agent teams with enhanced task execution"""
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize DynamicCrew with configuration"""
@@ -816,19 +1157,410 @@ class DynamicCrew:
         self.config = config
         self.system_state = {}
         
-        # Initialize managers
-        self.project_manager = config.get('project_manager')
-        
         # Initialize agent pool and teams
         self._agent_pool = []
         self._teams = {}
         
-        # Initialize task queue
+        # Initialize task management
         self._task_queue = asyncio.Queue()
+        self._pending_tasks: Dict[str, TaskExecution] = {}
+        self._running_tasks: Dict[str, TaskExecution] = {}
+        self._completed_tasks: Dict[str, TaskExecution] = {}
+        self._task_dependencies: Dict[str, List[str]] = {}
+        self._task_results: Dict[str, Any] = {}
+        
+        # Create a semaphore to limit concurrent tasks
+        max_concurrent = config.get('max_concurrent_tasks', 10)
+        self._task_semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # Create task workers
+        self._worker_tasks = []
+        num_workers = config.get('num_workers', 5)
+        for _ in range(num_workers):
+            worker = asyncio.create_task(self._task_worker())
+            self._worker_tasks.append(worker)
         
         # Setup logging
         if config.get('debug', False):
             logging.basicConfig(level=logging.DEBUG)
+
+    def cleanup(self):
+        """Clean up resources when DynamicCrew instance is destroyed."""
+        logging.info("Cleaning up DynamicCrew resources")
+        
+        # Cancel all worker tasks
+        for worker in self._worker_tasks:
+            if not worker.done():
+                worker.cancel()
+        
+        # Clear task queues and states
+        self._pending_tasks.clear()
+        self._running_tasks.clear()
+        self._completed_tasks.clear()
+        self._task_dependencies.clear()
+        self._task_results.clear()
+        
+        # Clear agent pool
+        self._agent_pool.clear()
+        
+        # Clear teams
+        self._teams.clear()
+        
+        # Clear system state
+        self.system_state = {}
+        
+        logging.info("DynamicCrew cleanup completed")
+        
+    async def _task_worker(self):
+        """Worker task that processes tasks from the queue"""
+        try:
+            while True:
+                # Get a task from the queue
+                task_execution_id = await self._task_queue.get()
+                
+                # Check if the task exists and is still pending
+                if task_execution_id not in self._pending_tasks:
+                    self._task_queue.task_done()
+                    continue
+                
+                task_execution = self._pending_tasks[task_execution_id]
+                
+                # Check if task dependencies are met
+                dependencies_met = await self._check_dependencies(task_execution)
+                if not dependencies_met:
+                    # Put the task back in the queue for later execution
+                    await self._task_queue.put(task_execution_id)
+                    self._task_queue.task_done()
+                    # Small delay to prevent CPU spinning
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Check if cancellation is requested
+                if task_execution.cancellation_requested:
+                    task_execution.status = "cancelled"
+                    # Move from pending to completed (as cancelled)
+                    self._pending_tasks.pop(task_execution_id)
+                    self._completed_tasks[task_execution_id] = task_execution
+                    self._task_queue.task_done()
+                    continue
+                
+                # Try to acquire the semaphore to limit concurrent tasks
+                async with self._task_semaphore:
+                    try:
+                        # Move from pending to running
+                        self._pending_tasks.pop(task_execution_id)
+                        task_execution.status = "running"
+                        task_execution.started_at = time.time()
+                        self._running_tasks[task_execution_id] = task_execution
+                        
+                        # Get the agent for this task
+                        agent = next((a for a in self._agent_pool if str(a.id) == task_execution.agent_id), None)
+                        if not agent:
+                            raise ValueError(f"Agent with ID {task_execution.agent_id} not found")
+                        
+                        # Get the task details
+                        task = None
+                        for team in self._teams.values():
+                            for t in team.get("tasks", []):
+                                if str(t.id) == task_execution.task_id:
+                                    task = t
+                                    break
+                            if task:
+                                break
+                        
+                        if not task:
+                            raise ValueError(f"Task with ID {task_execution.task_id} not found")
+                        
+                        # Execute the task with timeout
+                        try:
+                            result = await asyncio.wait_for(
+                                agent.execute_task(task),
+                                timeout=task_execution.timeout_seconds
+                            )
+                            task_execution.result = result
+                            task_execution.status = "completed"
+                        except asyncio.TimeoutError:
+                            task_execution.error = f"Task execution timed out after {task_execution.timeout_seconds} seconds"
+                            task_execution.status = "failed"
+                        except Exception as e:
+                            task_execution.error = str(e)
+                            task_execution.status = "failed"
+                        
+                        # Check if retry is needed
+                        if task_execution.status == "failed" and task_execution.retry_count < task_execution.max_retries:
+                            task_execution.retry_count += 1
+                            task_execution.status = "pending"
+                            self._pending_tasks[task_execution_id] = task_execution
+                            await self._task_queue.put(task_execution_id)
+                        else:
+                            # Move to completed, regardless of success or failure
+                            task_execution.completed_at = time.time()
+                            self._running_tasks.pop(task_execution_id)
+                            self._completed_tasks[task_execution_id] = task_execution
+                            
+                            # Store the result for dependency checking
+                            self._task_results[task_execution_id] = task_execution.result
+                            
+                    except Exception as e:
+                        logging.error(f"Error executing task {task_execution_id}: {str(e)}")
+                        # Move to completed with failure
+                        task_execution.error = str(e)
+                        task_execution.status = "failed"
+                        task_execution.completed_at = time.time()
+                        self._running_tasks.pop(task_execution_id, None)
+                        self._completed_tasks[task_execution_id] = task_execution
+                
+                # Mark the task as done in the queue
+                self._task_queue.task_done()
+        
+        except asyncio.CancelledError:
+            logging.info("Task worker cancelled")
+        except Exception as e:
+            logging.error(f"Unhandled error in task worker: {str(e)}")
+            
+    async def _check_dependencies(self, task_execution: TaskExecution) -> bool:
+        """Check if all dependencies for a task are met"""
+        if not task_execution.dependencies:
+            return True
+            
+        for dependency in task_execution.dependencies:
+            dep_id = dependency.get("id")
+            dep_type = dependency.get("type", TaskDependencyType.COMPLETION)
+            
+            if dep_id not in self._completed_tasks and dep_id not in self._running_tasks:
+                # Dependency task doesn't exist or is still pending
+                return False
+                
+            if dep_type == TaskDependencyType.COMPLETION:
+                # Check if the dependency task is completed
+                if dep_id not in self._completed_tasks:
+                    return False
+                    
+            elif dep_type == TaskDependencyType.START:
+                # Check if the dependency task has started
+                if dep_id not in self._running_tasks and dep_id not in self._completed_tasks:
+                    return False
+                    
+            elif dep_type == TaskDependencyType.OUTPUT:
+                # Check if the dependency task has completed with output
+                if dep_id not in self._task_results:
+                    return False
+                    
+                # Check if the output matches the expected value
+                if "expected_value" in dependency:
+                    expected = dependency["expected_value"]
+                    actual = self._task_results[dep_id]
+                    
+                    # Simple equality check - could be more sophisticated
+                    if expected != actual:
+                        return False
+                        
+            elif dep_type == TaskDependencyType.RESOURCE:
+                # Check resource availability
+                resource = dependency.get("resource")
+                if not resource:
+                    continue
+                    
+                # This is a simplified resource check
+                # In a real implementation, this would check resource availability
+                # based on some resource management system
+                
+        return True
+        
+    async def schedule_task(self, task_id: str, agent_id: str, execution_mode: TaskExecutionMode = TaskExecutionMode.SYNC,
+                     dependencies: List[Dict[str, Any]] = None, priority: int = 0,
+                     timeout_seconds: int = 300, max_retries: int = 3) -> str:
+        """
+        Schedule a task for execution.
+        
+        Args:
+            task_id: ID of the task to execute
+            agent_id: ID of the agent to execute the task
+            execution_mode: Mode of execution (sync, async, parallel, concurrent)
+            dependencies: List of task dependencies
+            priority: Priority of the task (higher means more important)
+            timeout_seconds: Task execution timeout in seconds
+            max_retries: Maximum number of retries for failed tasks
+            
+        Returns:
+            The ID of the scheduled task execution
+        """
+        # Create task execution
+        task_execution = TaskExecution(
+            task_id=task_id,
+            agent_id=agent_id,
+            execution_mode=execution_mode,
+            dependencies=dependencies or [],
+            priority=priority,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            status="pending"
+        )
+        
+        # Add to pending tasks
+        self._pending_tasks[task_execution.id] = task_execution
+        
+        # Add to task queue with priority
+        await self._task_queue.put(task_execution.id)
+        
+        return task_execution.id
+        
+    async def cancel_task(self, task_execution_id: str) -> bool:
+        """
+        Cancel a scheduled or running task.
+        
+        Args:
+            task_execution_id: ID of the task execution to cancel
+            
+        Returns:
+            True if the task was cancelled, False otherwise
+        """
+        # Check if the task is still pending
+        if task_execution_id in self._pending_tasks:
+            task_execution = self._pending_tasks[task_execution_id]
+            task_execution.cancellation_requested = True
+            return True
+            
+        # Check if the task is running
+        if task_execution_id in self._running_tasks:
+            task_execution = self._running_tasks[task_execution_id]
+            task_execution.cancellation_requested = True
+            return True
+            
+        return False
+        
+    async def get_task_status(self, task_execution_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the current status of a task execution.
+        
+        Args:
+            task_execution_id: ID of the task execution
+            
+        Returns:
+            Dictionary with task execution status or None if not found
+        """
+        if task_execution_id in self._pending_tasks:
+            return self._pending_tasks[task_execution_id].dict()
+            
+        if task_execution_id in self._running_tasks:
+            return self._running_tasks[task_execution_id].dict()
+            
+        if task_execution_id in self._completed_tasks:
+            return self._completed_tasks[task_execution_id].dict()
+            
+        return None
+        
+    async def execute_tasks_batch(self, tasks: List[Dict[str, Any]]) -> List[str]:
+        """
+        Schedule a batch of tasks for execution.
+        
+        Args:
+            tasks: List of task specifications
+            
+        Returns:
+            List of task execution IDs
+        """
+        execution_ids = []
+        
+        for task_spec in tasks:
+            task_id = task_spec.get("task_id")
+            agent_id = task_spec.get("agent_id")
+            
+            if not task_id or not agent_id:
+                continue
+                
+            execution_mode = task_spec.get("execution_mode", TaskExecutionMode.SYNC)
+            dependencies = task_spec.get("dependencies", [])
+            priority = task_spec.get("priority", 0)
+            timeout_seconds = task_spec.get("timeout_seconds", 300)
+            max_retries = task_spec.get("max_retries", 3)
+            
+            execution_id = await self.schedule_task(
+                task_id=task_id,
+                agent_id=agent_id,
+                execution_mode=execution_mode,
+                dependencies=dependencies,
+                priority=priority,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries
+            )
+            
+            execution_ids.append(execution_id)
+            
+        return execution_ids
+
+    async def create_agent(self, role: str, name: str, backstory: str, goal: str, 
+                     allow_delegation: bool = True, memory: bool = True, 
+                     verbose: bool = True, tools: List[str] = None) -> DynamicAgent:
+        """
+        Create a new agent with specified parameters.
+        
+        Args:
+            role (str): The role of the agent
+            name (str): The name of the agent
+            backstory (str): The backstory of the agent
+            goal (str): The goal of the agent
+            allow_delegation (bool): Whether the agent can delegate tasks
+            memory (bool): Whether the agent has memory
+            verbose (bool): Whether the agent is verbose
+            tools (List[str]): List of tool names the agent can use
+            
+        Returns:
+            DynamicAgent: The created agent
+        """
+        logging.info(f"Creating agent with role: {role}, name: {name}")
+        
+        # Create the agent
+        agent = DynamicAgent(
+            role=role,
+            goal=goal,
+            backstory=backstory,
+            api_endpoint=self.config.get('api_endpoint')
+        )
+        
+        # Set additional properties
+        agent.name = name
+        
+        # Fix grammar for the short description by adjusting the goal to fit after "responsible for"
+        # Convert first word to gerund form if it's a verb
+        goal_words = goal.split()
+        if goal_words:
+            first_word = goal_words[0].lower()
+            # Common verbs that might appear at the start of a goal
+            if first_word in ["optimize", "create", "develop", "build", "design", "implement", 
+                             "manage", "coordinate", "deliver", "ensure", "maintain", "provide"]:
+                # Convert to gerund form (add 'ing')
+                if first_word.endswith('e'):
+                    # For words ending in 'e', remove the 'e' and add 'ing'
+                    goal_words[0] = first_word[:-1] + 'ing'
+                else:
+                    goal_words[0] = first_word + 'ing'
+                
+                # Capitalize first letter if the original was capitalized
+                if goal[0].isupper():
+                    goal_words[0] = goal_words[0].capitalize()
+                    
+                adjusted_goal = ' '.join(goal_words)
+            else:
+                # If not a recognized verb, just use as is
+                adjusted_goal = goal
+        else:
+            adjusted_goal = goal
+            
+        agent.short_description = f"{role} agent responsible for {adjusted_goal}"
+        agent._collaboration_tasks = []
+        agent.status = "ready"
+        
+        # Add tools if specified
+        if tools:
+            # Here we would normally convert tool names to actual tool instances
+            # For now, we'll just store the tool names
+            agent._state["role_context"]["capabilities"] = tools
+        
+        # Add agent to pool
+        self.add_agent(agent)
+        
+        return agent
 
     def get_active_agents(self):
         """Get list of currently active agents"""
@@ -864,20 +1596,41 @@ class DynamicCrew:
                 "agents": selected_agents,
                 "created_at": asyncio.get_event_loop().time(),
                 "status": "active",
-                "tasks": []
+                "tasks": [],
+                "vision": project_description
             }
             
             # Store team
             self._teams[team_id] = team
             
-            return {
+            # Helper function to convert UUID objects to strings
+            def convert_uuids_to_strings(obj):
+                if isinstance(obj, dict):
+                    for key, value in list(obj.items()):
+                        if hasattr(value, 'hex') and callable(getattr(value, 'hex')):
+                            obj[key] = str(value)
+                        elif isinstance(value, (dict, list)):
+                            convert_uuids_to_strings(value)
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        if hasattr(item, 'hex') and callable(getattr(item, 'hex')):
+                            obj[i] = str(item)
+                        elif isinstance(item, (dict, list)):
+                            convert_uuids_to_strings(item)
+                return obj
+            
+            # Create response with agent information
+            response = {
                 "team": {
                     "id": team_id,
                     "description": project_description,
+                    "vision": project_description,
                     "agents": [
                         {
-                            "id": str(uuid.uuid4()),
+                            "id": str(agent.id) if hasattr(agent, 'id') else str(uuid.uuid4()),
                             "role": agent.role,
+                            "name": agent.name if hasattr(agent, 'name') else agent.role,
+                            "description": agent.short_description if hasattr(agent, 'short_description') else "",
                             "status": "active"
                         }
                         for agent in selected_agents
@@ -885,20 +1638,29 @@ class DynamicCrew:
                 }
             }
             
+            # Ensure all UUIDs are converted to strings
+            return convert_uuids_to_strings(response)
+            
         except Exception as e:
             logging.error(f"Error creating team: {str(e)}")
             raise
 
     def _update_agent_metadata(self, agent: DynamicAgent) -> AgentMetadata:
         """Update agent metadata"""
+        # Get the current load safely
+        current_load = 0
+        if hasattr(agent, '_collaboration_tasks'):
+            current_load = len(agent._collaboration_tasks)
+        
         return AgentMetadata(
             id=str(uuid.uuid4()) if not hasattr(agent, 'id') else agent.id,
             name=agent.name,
             role=agent.role,
-            status=agent.status,
-            current_load=len(agent._collaboration_tasks),
+            status=agent.status if hasattr(agent, 'status') else "ready",
+            current_load=current_load,
             last_active=asyncio.get_event_loop().time(),
-            skills=[tool.name for tool in agent.tools if hasattr(tool, 'name')]
+            skills=[tool.name for tool in agent.tools if hasattr(tool, 'name')],
+            description=agent.short_description
         )
 
     def _update_task_metadata(self, task: Task) -> TaskMetadata:
@@ -919,264 +1681,3 @@ class DynamicCrew:
             # Update agent states
             for agent in team_state.active_agents:
                 agent_obj = next((a for a in self._agent_pool if a.name == agent.name), None)
-                if agent_obj:
-                    updated_metadata = self._update_agent_metadata(agent_obj)
-                    agent.status = updated_metadata.status
-                    agent.current_load = updated_metadata.current_load
-                    agent.last_active = updated_metadata.last_active
-
-    async def dissolve_team(self, team_id: str) -> bool:
-        """Dissolve a team and release its agents"""
-        try:
-            if team_id not in self._teams:
-                return False
-            
-            team = self._teams[team_id]
-            
-            # Stop agent tasks
-            for agent in team["agents"]:
-                await agent.stop_background_tasks()
-                agent.current_team = None
-            
-            # Remove team
-            del self._teams[team_id]
-            
-            logging.info(f"Team {team_id} dissolved")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error dissolving team: {str(e)}")
-            return False
-
-    async def regroup_team(self, team_id: str, new_requirements: str) -> Dict[str, Any]:
-        """Regroup an existing team based on new requirements"""
-        try:
-            if team_id not in self._teams:
-                raise ValueError(f"Team {team_id} not found")
-            
-            # Get current team
-            current_team = self._teams[team_id]
-            
-            # Query new composition
-            new_composition = await self._query_team_composition(new_requirements)
-            
-            # Find agents to remove and add
-            current_agents = set(current_team["agents"])
-            required_roles = new_composition.get("required_roles", [])
-            
-            # Select new agents
-            new_agents = await self._select_agents(required_roles)
-            new_agent_set = set(new_agents)
-            
-            # Determine changes
-            agents_to_remove = current_agents - new_agent_set
-            agents_to_add = new_agent_set - current_agents
-            
-            # Update team
-            for agent in agents_to_remove:
-                await agent.stop_background_tasks()
-                agent.current_team = None
-                current_team["agents"].remove(agent)
-            
-            for agent in agents_to_add:
-                agent.current_team = team_id
-                await agent.start_background_tasks()
-                current_team["agents"].append(agent)
-            
-            current_team["description"] = new_requirements
-            
-            logging.info(f"Team {team_id} regrouped: {len(agents_to_remove)} agents removed, {len(agents_to_add)} agents added")
-            
-            return {
-                "team": {
-                    "id": team_id,
-                    "description": new_requirements,
-                    "agents": [
-                        {
-                            "id": str(uuid.uuid4()),
-                            "role": agent.role,
-                            "goal": agent.goal,
-                            "status": "active"
-                        }
-                        for agent in current_team["agents"]
-                    ]
-                }
-            }
-            
-        except Exception as e:
-            logging.error(f"Error regrouping team: {str(e)}")
-            raise
-
-    async def execute_tasks(self, tasks: List[Task], team_id: Optional[str] = None) -> List[str]:
-        """Execute tasks with a specific team or best available agents"""
-        try:
-            results = []
-            
-            # Get available agents
-            available_agents = self._teams[team_id]["agents"] if team_id else self._agent_pool
-            
-            for task in tasks:
-                # Find best agent for task
-                agent = self._find_best_agent(task, available_agents)
-                if not agent:
-                    raise ValueError(f"No suitable agent found for task: {task.description}")
-                
-                # Schedule and execute task
-                await agent.schedule_task(task)
-                result = await agent.execute_task(task)
-                results.append(result)
-            
-            return results
-            
-        except Exception as e:
-            logging.error(f"Error executing tasks: {str(e)}")
-            raise
-
-    def _find_best_agent(self, task: Task, available_agents: List[DynamicAgent]) -> Optional[DynamicAgent]:
-        """Find the best agent for a task from available agents"""
-        best_agent = None
-        best_score = -1
-        
-        for agent in available_agents:
-            score = self._calculate_agent_score(agent, task)
-            if score > best_score:
-                best_score = score
-                best_agent = agent
-        
-        return best_agent
-
-    def _calculate_agent_score(self, agent: DynamicAgent, task: Task) -> float:
-        """Calculate how well an agent matches a task"""
-        score = 0.0
-        
-        # Check required skills
-        if hasattr(task, 'required_skills'):
-            matching_skills = sum(1 for skill in task.required_skills if skill in agent.tools)
-            score += matching_skills / len(task.required_skills) if task.required_skills else 0
-        
-        # Check agent load
-        if hasattr(agent, '_collaboration_tasks'):
-            load_factor = 1.0 - (len(agent._collaboration_tasks) / 10)  # Assume max 10 tasks
-            score += load_factor
-        
-        # Check agent status
-        if agent.status == "ready":
-            score += 1.0
-        
-        return score
-
-    async def cleanup(self):
-        """Clean up all crews and release resources"""
-        try:
-            logging.info("Cleaning up all crews")
-            
-            # Dissolve all teams
-            for team_id in list(self._teams.keys()):
-                await self.dissolve_team(team_id)
-            
-            # Clear agent pool
-            self._agent_pool.clear()
-            
-            # Clear queues
-            self._task_queue = asyncio.Queue()
-            
-            logging.info("Crew cleanup completed")
-            
-        except Exception as e:
-            logging.error(f"Error during crew cleanup: {str(e)}")
-            raise
-
-class ProjectTask(Task):
-    """Enhanced task model with project management capabilities"""
-    
-    def __init__(self, description: str, expected_output: str, agent: Agent,
-                 priority: int = 1, estimated_duration: float = 1.0,
-                 required_skills: List[str] = None, max_parallel_agents: int = 1,
-                 min_required_agents: int = 1):
-        """Initialize ProjectTask"""
-        super().__init__(description=description, expected_output=expected_output, agent=agent)
-        
-        # Additional project management fields
-        self.priority = priority
-        self.estimated_duration = estimated_duration
-        self.required_skills = required_skills or []
-        self.max_parallel_agents = max_parallel_agents
-        self.min_required_agents = min_required_agents
-        
-        # Task state
-        self.state = TaskMetadata(
-            id=str(uuid.uuid4()),
-            status="pending",
-            priority=priority,
-            assigned_to=agent.id if hasattr(agent, 'id') else None
-        )
-        
-        # Dependencies
-        self.dependencies = []
-        
-    def add_dependency(self, task: 'ProjectTask') -> None:
-        """Add a dependency to this task"""
-        if task.state.id not in self.dependencies:
-            self.dependencies.append(task.state.id)
-
-class ProjectManager:
-    """Project management system for task tracking and execution"""
-    
-    def __init__(self):
-        """Initialize ProjectManager"""
-        self.tasks = {}
-        self.active_tasks = set()
-        self.completed_tasks = set()
-        self.task_dependencies = {}
-        self.task_states = {}
-
-    async def add_task(self, task: ProjectTask) -> None:
-        """Add a task to the project manager"""
-        self.tasks[task.state.id] = task
-        self.task_states[task.state.id] = task.state
-        
-        # Add task dependencies
-        if hasattr(task, 'dependencies'):
-            self.task_dependencies[task.state.id] = set(task.dependencies)
-
-    async def update_task_state(self, task_id: str, state: Dict[str, Any]) -> None:
-        """Update task state"""
-        if task_id in self.task_states:
-            self.task_states[task_id].update(state)
-            
-            # Update task sets based on status
-            if state.get('status') == 'completed':
-                self.active_tasks.discard(task_id)
-                self.completed_tasks.add(task_id)
-            elif state.get('status') == 'in_progress':
-                self.active_tasks.add(task_id)
-
-    async def get_available_tasks(self) -> List[ProjectTask]:
-        """Get tasks that are ready to be executed"""
-        available_tasks = []
-        
-        for task_id, task in self.tasks.items():
-            # Skip completed or active tasks
-            if task_id in self.completed_tasks or task_id in self.active_tasks:
-                continue
-                
-            # Check if all dependencies are completed
-            dependencies = self.task_dependencies.get(task_id, set())
-            if all(dep in self.completed_tasks for dep in dependencies):
-                available_tasks.append(task)
-                
-        return available_tasks
-
-    async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Get current status of a task"""
-        return self.task_states.get(task_id)
-
-    async def cleanup(self) -> None:
-        """Clean up completed tasks and update states"""
-        # Archive completed tasks
-        for task_id in self.completed_tasks:
-            if task_id in self.tasks:
-                del self.tasks[task_id]
-                del self.task_states[task_id]
-                if task_id in self.task_dependencies:
-                    del self.task_dependencies[task_id]

@@ -9,6 +9,7 @@ import { DiffUtils } from './diffUtils';
 export interface FileChange {
 	path: string;
 	content: string;
+	type?: 'create' | 'modify' | 'delete';  // Add type field
 	originalContent?: string;
 	explanation?: string;
 	timestamp?: string;
@@ -198,6 +199,52 @@ export class StorageService {
 		const groups = await this.getChangeGroups();
 		const updatedGroups = groups.filter((g) => g.id !== groupId);
 		await this.context.workspaceState.update('changeGroups', updatedGroups);
+	}
+	
+	/**
+	 * Update a change group
+	 */
+	async updateChangeGroup(group: ChangeGroup): Promise<void> {
+		const groups = await this.getChangeGroups();
+		const existingIndex = groups.findIndex((g) => g.id === group.id);
+		
+		if (existingIndex >= 0) {
+			groups[existingIndex] = group;
+			await this.context.workspaceState.update('changeGroups', groups);
+		}
+	}
+	
+	/**
+	 * Get all pending changes
+	 */
+	async getPendingChanges(): Promise<any[]> {
+		return this.context.workspaceState.get('pendingChanges', []);
+	}
+	
+	/**
+	 * Update a pending change
+	 */
+	async updatePendingChange(change: any): Promise<void> {
+		const changes = await this.getPendingChanges();
+		const existingIndex = changes.findIndex((c) => c.id === change.id);
+		
+		if (existingIndex >= 0) {
+			changes[existingIndex] = change;
+			await this.context.workspaceState.update('pendingChanges', changes);
+		}
+	}
+	
+	/**
+	 * Update an annotation
+	 */
+	async updateAnnotation(annotation: Annotation): Promise<void> {
+		const annotations = await this.getAnnotations();
+		const existingIndex = annotations.findIndex((a) => a.id === annotation.id);
+		
+		if (existingIndex >= 0) {
+			annotations[existingIndex] = annotation;
+			await this.context.workspaceState.update('annotations', annotations);
+		}
 	}
 
 	/**

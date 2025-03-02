@@ -1,0 +1,802 @@
+@import '../../components/common/styles.css';
+
+/* Tools Panel Component */
+.tools-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tools-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 98%, var(--tribe-info) 2%);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.tools-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tools-title h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+
+.tools-title svg {
+  color: var(--tribe-info);
+}
+
+.tools-system-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  background-color: var(--vscode-editor-background);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.toggle-switch.active {
+  background: var(--tribe-success);
+  border-color: var(--tribe-success);
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background-color: white;
+  border-radius: var(--radius-full);
+  transition: transform var(--transition-normal) var(--transition-ease-out);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggle-switch.active .toggle-slider {
+  transform: translateX(19px);
+}
+
+/* Panel Content */
+.tools-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  overflow: auto;
+  background-color: var(--vscode-editor-background);
+}
+
+/* Toolbar */
+.tools-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  align-items: center;
+}
+
+.tools-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  min-width: 200px;
+  flex: 1;
+}
+
+.tools-search svg {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.tools-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--vscode-input-foreground);
+  font-size: var(--font-size-sm);
+}
+
+.clear-search {
+  background: none;
+  border: none;
+  color: var(--vscode-input-placeholderForeground);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clear-search:hover {
+  color: var(--tribe-error);
+}
+
+.tools-categories {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background-color: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+}
+
+.tools-categories svg {
+  color: var(--tribe-info);
+}
+
+.tools-categories select {
+  background-color: transparent;
+  border: none;
+  color: var(--vscode-dropdown-foreground);
+  font-size: var(--font-size-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.tools-view-toggle {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.view-button {
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--transition-ease);
+}
+
+.view-button.active {
+  background-color: var(--tribe-info);
+  color: white;
+}
+
+.add-tool-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background-color: var(--tribe-info);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--transition-ease);
+  box-shadow: var(--shadow-sm);
+}
+
+.add-tool-button:hover {
+  background-color: var(--tribe-info-light, color-mix(in srgb, var(--tribe-info) 80%, white));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Loading Indicator */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--vscode-foreground);
+  font-size: var(--font-size-base);
+  opacity: 0.7;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.7; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0.7; }
+}
+
+/* Grid View */
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-4);
+}
+
+.tool-card {
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--transition-ease);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+}
+
+.tool-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--tribe-info);
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 98%, var(--tribe-info) 2%);
+}
+
+.tool-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.tool-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--tribe-info), var(--tribe-info-light, color-mix(in srgb, var(--tribe-info) 80%, white)));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.tool-category {
+  display: inline-flex;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--tribe-info-muted, rgba(59, 130, 246, 0.15));
+  color: var(--tribe-info);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.tool-name {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+
+.tool-description {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--font-size-sm);
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.tool-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-xs);
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.tool-usage-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.usage-count {
+  color: var(--vscode-descriptionForeground);
+}
+
+.usage-bar {
+  width: 100%;
+  height: 4px;
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--tribe-secondary) 20%);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.usage-rate {
+  display: block;
+  height: 4px;
+  background-color: var(--tribe-success);
+  border-radius: var(--radius-full);
+}
+
+.tool-agents-count {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* List View */
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tools-table th {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-info) 3%);
+  color: var(--vscode-foreground);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tools-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 50%, transparent);
+  font-size: var(--font-size-sm);
+}
+
+.tool-row {
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--transition-ease);
+}
+
+.tool-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.category-badge {
+  display: inline-flex;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--tribe-info-muted, rgba(59, 130, 246, 0.15));
+  color: var(--tribe-info);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.description-cell {
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-usage-indicator.list-view {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tool-usage-indicator.list-view .usage-bar {
+  width: 70px;
+  min-width: 70px;
+}
+
+/* Tool Form */
+.add-tool-form {
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  animation: slideDown var(--transition-normal) var(--transition-ease-out);
+  box-shadow: var(--shadow-md);
+}
+
+.add-tool-form h4 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+
+.form-group {
+  margin-bottom: var(--space-3);
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--vscode-foreground);
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: var(--space-2);
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast) var(--transition-ease);
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: var(--tribe-info);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.cancel-button {
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast) var(--transition-ease);
+}
+
+.cancel-button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.save-button {
+  background-color: var(--tribe-info);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.save-button:hover:not(:disabled) {
+  background-color: var(--tribe-info-light, color-mix(in srgb, var(--tribe-info) 80%, white));
+}
+
+.save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Tool Details Modal */
+.tool-details-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--transition-normal) var(--transition-ease-out);
+}
+
+.tool-details-content {
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  background-color: var(--vscode-editor-background);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: scaleIn var(--transition-normal) var(--transition-ease-out);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.tool-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-info) 3%);
+}
+
+.tool-details-header h4 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+
+.close-details-button {
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.close-details-button:hover {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 90%, var(--tribe-error) 10%);
+  color: var(--tribe-error);
+}
+
+.tool-details-body {
+  flex: 1;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.tool-detail {
+  margin-bottom: var(--space-3);
+}
+
+.detail-label {
+  display: block;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.tool-detail p {
+  margin: 0;
+  line-height: 1.5;
+  font-size: var(--font-size-sm);
+}
+
+.tool-parameters, .tool-usage, .tool-agents {
+  margin-top: var(--space-4);
+}
+
+.tool-parameters h5, .tool-usage h5, .tool-agents h5 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+
+.parameters-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.parameters-table th {
+  text-align: left;
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-info) 5%);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+.parameters-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 30%, transparent);
+}
+
+.usage-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.usage-stat {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-info) 3%);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--vscode-descriptionForeground);
+}
+
+.stat-value {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.agent-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+}
+
+.agent-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-info) 3%);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+}
+
+.remove-agent-button {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.remove-agent-button:hover {
+  color: var(--tribe-error);
+  background-color: color-mix(in srgb, transparent 90%, var(--tribe-error) 10%);
+}
+
+.no-agents {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  margin: var(--space-2) 0;
+}
+
+.assign-tool {
+  margin-top: var(--space-3);
+}
+
+.assign-form {
+  margin-top: var(--space-2);
+}
+
+.agent-select {
+  width: 100%;
+  padding: var(--space-2);
+  background-color: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  outline: none;
+}
+
+/* Empty State */
+.tools-system-disabled {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--vscode-foreground);
+  height: 100%;
+  min-height: 300px;
+}
+
+.tools-system-disabled svg {
+  color: var(--tribe-info);
+  margin-bottom: var(--space-4);
+  opacity: 0.7;
+}
+
+.tools-system-disabled h4 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+
+.tools-system-disabled p {
+  margin: 0 0 var(--space-4) 0;
+  max-width: 400px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.enable-tools-button {
+  background-color: var(--tribe-info);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: all var(--transition-fast) var(--transition-ease);
+  box-shadow: var(--shadow-sm);
+}
+
+.enable-tools-button:hover {
+  background-color: var(--tribe-info-light, color-mix(in srgb, var(--tribe-info) 80%, white));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .tools-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .tools-search, .tools-categories {
+    width: 100%;
+  }
+  
+  .tools-view-toggle {
+    justify-content: center;
+  }
+  
+  .add-tool-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .usage-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .tool-details-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

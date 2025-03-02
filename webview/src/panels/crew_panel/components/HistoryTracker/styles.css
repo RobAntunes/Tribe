@@ -1,0 +1,225 @@
+@import '../../components/common/styles.css';
+
+.history-tracker {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--vscode-editor-background);
+  border-radius: 4px;
+  border: 1px solid var(--vscode-widget-border);
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.history-header {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.history-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.history-filters {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-group label {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.filter-select {
+  padding: 4px 8px;
+  font-size: 12px;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background-color: var(--vscode-list-hoverBackground);
+  border-radius: 4px;
+  border-left: 3px solid var(--vscode-badge-background);
+  transition: transform 0.2s ease;
+}
+
+.timeline-event:hover {
+  transform: translateX(4px);
+}
+
+.timeline-event.team_created {
+  border-left-color: var(--tribe-primary);
+}
+
+.timeline-event.agent_added {
+  border-left-color: #4caf50; /* Green */
+}
+
+.timeline-event.agent_removed {
+  border-left-color: #f44336; /* Red */
+}
+
+.timeline-event.team_optimized {
+  border-left-color: #2196f3; /* Blue */
+}
+
+.timeline-event.learning_milestone {
+  border-left-color: #9c27b0; /* Purple */
+}
+
+.timeline-event.tool_added {
+  border-left-color: #ff9800; /* Orange */
+}
+
+.timeline-event.performance_improvement {
+  border-left-color: #00bcd4; /* Cyan */
+}
+
+.event-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  flex-shrink: 0;
+}
+
+.timeline-event.team_created .event-icon {
+  background-color: var(--tribe-primary);
+}
+
+.timeline-event.agent_added .event-icon {
+  background-color: #4caf50; /* Green */
+}
+
+.timeline-event.agent_removed .event-icon {
+  background-color: #f44336; /* Red */
+}
+
+.timeline-event.team_optimized .event-icon {
+  background-color: #2196f3; /* Blue */
+}
+
+.timeline-event.learning_milestone .event-icon {
+  background-color: #9c27b0; /* Purple */
+}
+
+.timeline-event.tool_added .event-icon {
+  background-color: #ff9800; /* Orange */
+}
+
+.timeline-event.performance_improvement .event-icon {
+  background-color: #00bcd4; /* Cyan */
+}
+
+.event-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.event-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.event-time {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.event-description {
+  font-size: 12px;
+  margin: 4px 0;
+  color: var(--vscode-foreground);
+}
+
+.event-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px;
+  background-color: var(--vscode-editor-background);
+  border-radius: 4px;
+}
+
+.metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.metadata-key {
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.metadata-value {
+  color: var(--vscode-foreground);
+  display: flex;
+  align-items: center;
+}
+
+.metadata-value .success {
+  color: #4caf50; /* Green */
+}
+
+.metadata-value .error {
+  color: #f44336; /* Red */
+}
+
+.empty-timeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}
+
+.empty-timeline svg {
+  opacity: 0.6;
+}

@@ -1,0 +1,341 @@
+@import '../common/styles.css';
+
+/* ChatWindow component styles */
+.chat-window {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 98%, var(--tribe-primary) 2%);
+    border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 90%, transparent 10%);
+}
+
+.chat-header {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-primary) 5%);
+}
+
+.chat-header-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.chat-header-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    scrollbar-width: thin;
+    scrollbar-color: var(--tribe-secondary) transparent;
+}
+
+.messages-container::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+    background-color: var(--tribe-secondary);
+    border-radius: var(--radius-full);
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+    background-color: var(--tribe-secondary-dark);
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.message.user {
+    align-self: flex-end;
+}
+
+.message.agent {
+    align-self: flex-start;
+}
+
+.message.system {
+    align-self: center;
+    max-width: 90%;
+    opacity: 0.8;
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-1);
+    font-size: var(--font-size-xs);
+}
+
+.sender {
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+.timestamp {
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--font-size-xs);
+}
+
+.message-content {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    position: relative;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.message.user .message-content {
+    background-color: color-mix(in srgb, var(--tribe-accent) 15%, var(--vscode-editor-background) 85%);
+    color: var(--vscode-foreground);
+    border-top-right-radius: var(--radius-xs);
+}
+
+.message.agent .message-content {
+    background-color: color-mix(in srgb, var(--tribe-primary) 15%, var(--vscode-editor-background) 85%);
+    color: var(--vscode-foreground);
+    border-top-left-radius: var(--radius-xs);
+}
+
+.message.system .message-content {
+    background-color: color-mix(in srgb, var(--tribe-secondary) 10%, var(--vscode-editor-background) 90%);
+    color: var(--vscode-foreground);
+    border-radius: var(--radius-md);
+    font-style: italic;
+}
+
+.message-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    opacity: 0;
+    transition: opacity var(--transition-fast) var(--transition-ease);
+}
+
+.message:hover .message-actions {
+    opacity: 1;
+}
+
+.message-action-button {
+    background: none;
+    border: none;
+    padding: var(--space-1);
+    cursor: pointer;
+    color: var(--tribe-secondary);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.message-action-button:hover {
+    color: var(--tribe-primary);
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 90%, var(--tribe-primary) 10%);
+}
+
+.input-container {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--vscode-panel-border);
+    display: flex;
+    gap: var(--space-2);
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 97%, var(--tribe-primary) 3%);
+}
+
+.input-field {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: var(--tribe-primary);
+    box-shadow: 0 0 0 1px var(--tribe-primary-light);
+}
+
+.input-field::placeholder {
+    color: color-mix(in srgb, var(--vscode-input-foreground) 60%, transparent 40%);
+}
+
+.button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: none;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.button.primary {
+    background-color: var(--tribe-primary);
+    color: white;
+}
+
+.button.primary:hover {
+    background-color: var(--tribe-primary-dark);
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.loading-indicator-container {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2) 0;
+    margin-top: var(--space-2);
+}
+
+.loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--tribe-primary) 5%);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+    font-size: var(--font-size-xs);
+    color: var(--tribe-primary);
+    animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.loading-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(var(--tribe-primary), 0.2);
+    border-top-color: var(--tribe-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.error-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--tribe-error);
+}
+
+.error-icon {
+    font-size: var(--font-size-lg);
+}
+
+/* Markdown content styling */
+.markdown-content {
+    width: 100%;
+}
+
+.markdown-content p {
+    margin: var(--space-2) 0;
+}
+
+.markdown-content p:first-child {
+    margin-top: 0;
+}
+
+.markdown-content p:last-child {
+    margin-bottom: 0;
+}
+
+.markdown-content pre {
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 80%, black 20%);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    overflow-x: auto;
+    margin: var(--space-2) 0;
+}
+
+.markdown-content code {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+}
+
+.markdown-content p code {
+    background-color: color-mix(in srgb, var(--vscode-editor-background) 80%, black 20%);
+    padding: 0.2em 0.4em;
+    border-radius: var(--radius-sm);
+}
+
+.markdown-content ul,
+.markdown-content ol {
+    margin: var(--space-2) 0;
+    padding-left: var(--space-4);
+}
+
+.markdown-content li {
+    margin-bottom: var(--space-1);
+}
+
+.markdown-content a {
+    color: var(--tribe-primary);
+    text-decoration: none;
+}
+
+.markdown-content a:hover {
+    text-decoration: underline;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+    .message {
+        max-width: 90%;
+    }
+    
+    .input-container {
+        padding: var(--space-2);
+    }
+}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getVsCodeApi } from '../../../vscode';
 import { Agent } from '../types';
-import { Brain, Share2, BarChart2, BookOpen, Clock } from 'lucide-react';
+import { Brain, Share2, BarChart2, BookOpen, Clock, Settings } from 'lucide-react';
 import './LearningDashboard.css';
 
 // Initialize VS Code API
@@ -163,15 +163,13 @@ export const LearningDashboard: React.FC<LearningDashboardProps> = ({
           <h3>Learning System</h3>
         </div>
         
-        <div className="learning-system-toggle">
-          <span>System Status:</span>
-          <div 
-            className={`toggle-switch ${systemEnabled ? 'active' : ''}`}
-            onClick={handleToggleSystem}
-          >
-            <div className="toggle-slider"></div>
-          </div>
-        </div>
+        <button 
+          className="settings-cog-button"
+          onClick={handleToggleSystem}
+          title={systemEnabled ? "Disable Learning System" : "Enable Learning System"}
+        >
+          <Settings size={16} />
+        </button>
       </div>
       
       {systemEnabled ? (

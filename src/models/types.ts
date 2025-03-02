@@ -44,6 +44,7 @@ export interface Checkpoint {
 		deleted: number;
 	};
 	snapshotPath: string;
+	snapshot?: Record<string, string>; // Add snapshot property for direct access
 	changeGroups?: string[];
 	subCheckpoints?: SubCheckpoint[];
 }
@@ -83,7 +84,11 @@ export interface AnnotationReply {
 	id: string;
 	timestamp: string;
 	content: string;
-	author: string;
+	author: string | { id: string; name: string; type: 'human' | 'agent' };
+	filePath?: string;
+	lineNumber?: number;
+	resolved?: boolean;
+	replies?: AnnotationReply[];
 }
 
 export interface Annotation {
@@ -92,9 +97,10 @@ export interface Annotation {
 	filePath: string;
 	lineNumber: number;
 	content: string;
-	author: string;
+	author: string | { id: string; name: string; type: 'human' | 'agent' };
 	replies: AnnotationReply[];
 	resolved: boolean;
+	type?: string;
 	tags?: string[];
 }
 

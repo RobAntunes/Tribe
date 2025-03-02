@@ -25,507 +25,364 @@ import {
 	Flag
 } from "lucide-react";
 import { GetStarted } from './components/GetStarted';
-import './CrewPanel.css';
+import './styles.css';
 import { ActionPanel } from './components/ActionPanel';
 import { AgentCard } from './components/AgentCard';
 import { ChatWindow } from './components/ChatWindow';
-import { DecisionPanel } from './components/DecisionPanel';
+import { DecisionPanel } from './components/DecisionPanel/index';
 import { TaskList } from './components/TaskList';
 import { Message, Agent, ProjectState } from './types';
-import { DiffNavigationPortal } from './components/DiffNavigationPortal';
-import { ChangeCheckpoints } from './components/ChangeCheckpoints';
+import { DiffNavigationPortal } from './components/DiffNavigationPortal/index';
+import { ChangeCheckpoints } from './components/ChangeCheckpoints/index';
 import { TribeDashboard } from './components/TribeDashboard';
-import { ProjectDashboard } from './components/ProjectDashboard';
-import { ToolsPanel } from './components/ToolsPanel';
-import { LearningDashboard } from './components/LearningDashboard';
-import { ConsolidatedDashboard } from './components/ConsolidatedDashboard';
+import { ProjectDashboard } from './components/ProjectDashboard/index';
+import { ToolsPanel } from './components/ToolsPanel/index';
+import { LearningDashboard } from './components/LearningDashboard/index';
+import { ConsolidatedDashboard } from './components/ConsolidatedDashboard/index';
+import { ProjectManagementSystem } from './components/ProjectManagementSystem';
+import { ReflectionSystem } from './components/ReflectionSystem';
+import { LearningSystem } from './components/LearningSystem';
+import { FeedbackSystem } from './components/FeedbackSystem';
+import { AgentAutonomyPanel } from './components/AgentAutonomyPanel';
+import { QuickActionsPanel } from './components/QuickActionsPanel/index';
 
-
-// Initialize VS Code API only once
-const vscode = getVsCodeApi();
-
-interface AutonomyLevel {
-	level: 'FULL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'MINIMAL';
-	value: number;
+// Define interfaces for Project Management System
+interface PMSTask {
+	id: string;
+	title: string;
 	description: string;
+	status: 'todo' | 'in_progress' | 'review' | 'done';
+	priority: 'low' | 'medium' | 'high' | 'critical';
+	assignee?: string;
+	dueDate?: string;
+	createdAt: string;
+	updatedAt: string;
+	dependencies?: string[];
+	tags?: string[];
+	estimatedHours?: number;
+	actualHours?: number;
+	progress?: number;
 }
 
-interface DecisionCriteria {
-	confidenceThreshold: number;
-	riskTolerance: number;
-	maxResourceUsage: number;
-	requiredApprovals: number;
-	timeoutSeconds: number;
-}
-
-interface TaskType {
+interface PMSProject {
+	id: string;
 	name: string;
-	criteria: DecisionCriteria;
+	description: string;
+	startDate: string;
+	endDate?: string;
+	status: 'planning' | 'active' | 'on_hold' | 'completed';
+	tasks: PMSTask[];
+	members: string[];
+	metadata: Record<string, any>;
 }
 
-interface AutonomyState {
-	level: AutonomyLevel;
-	taskTypes: Record<string, DecisionCriteria>;
-	performanceHistory: number[];
-	adaptationHistory: Array<{
-		type: 'increase' | 'decrease';
-		from: number;
-		to: number;
-		reason: string;
+interface PMSTaskFilter {
+	status?: string[];
+	priority?: string[];
+	assignee?: string[];
+	tags?: string[];
+	dueDate?: {
+		from?: string;
+		to?: string;
+	};
+}
+
+type AgentRole = 'pm' | 'dev' | 'specialist' | 'architect' | 'designer' | 'tester' | 'researcher' | 'custom';
+
+interface AgentSpec {
+	id?: string;
+	name: string;
+	role: AgentRole | string;
+	skills: string[];
+	description: string;
+	responsibilities: string[];
+	tools?: string[];
+	autonomyLevel?: number;
+	customAttributes?: Record<string, any>;
+}
+
+// Interfaces for Reflection System
+interface Reflection {
+	id: string;
+	type: 'process' | 'outcome' | 'decision' | 'generic';
+	context: {
+		task?: string;
+		project?: string;
+		agents: string[];
 		timestamp: string;
-	}>;
-}
-
-interface PerformanceMetrics {
-	successRate: number;
-	taskCompletionTime: number;
-	resourceUsage: number;
-	errorRate: number;
-}
-
-interface FlowSuggestion {
-	id: string;
-	name: string;
-	confidence: number;
-	description: string;
-	steps: string[];
-	context: any;
-}
-
-interface FlowState {
-	flowType: string;
-	result: any;
-	state: any;
-	visualizations: any[];
-	proposedChanges: {
-		filesToModify: Array<{ path: string; content: string }>;
-		filesToCreate: Array<{ path: string; content: string }>;
-		filesToDelete: string[];
 	};
-	genesisAnalysis?: {
-		suggestions: Array<{
-			type: string;
-			description: string;
-			priority: 'high' | 'medium' | 'low';
-			impact: string;
-		}>;
-		codebaseHealth: number;
+	content: {
+		summary: string;
+		strengths: string[];
+		weaknesses: string[];
+		insights: string[];
+		nextSteps?: string[];
 	};
+	metadata: Record<string, any>;
 }
 
-interface PendingInstruction {
+interface InsightGroup {
+	topic: string;
+	insights: string[];
+	frequency: number;
+	impact: 'high' | 'medium' | 'low';
+}
+
+interface ImprovementPlan {
 	id: string;
-	question: string;
-	context: string;
-	timestamp: string;
-}
-
-interface Task {
-	id: string;
-	title: string;
-	description: string;
-	status: 'pending' | 'in-progress' | 'completed' | 'blocked';
-	assignedTo: string;
-	crew: string;
-	priority: 'high' | 'medium' | 'low';
-}
-
-interface TeamMessage extends Message {
-	teamId: string;
-	consolidatedResponse?: boolean;
-}
-
-interface FileChange {
-	path: string;
-	content: string;
-	originalContent?: string;
-	explanation?: string;
-	hunks?: Array<{
-		startLine: number;
-		endLine: number;
-		content: string;
-		originalContent?: string;
-	}>;
-}
-
-interface ChangeGroup {
-	id: string;
-	title: string;
-	description: string;
-	agentId: string;
-	agentName: string;
-	timestamp: string;
-	files: {
-		modify: FileChange[];
-		create: FileChange[];
-		delete: string[];
+	target: {
+		agent?: string;
+		team?: string;
+		process?: string;
 	};
-}
-
-interface Implementation {
-	id: string;
-	title: string;
-	description: string;
-	tradeoffs: {
-		pros: string[];
-		cons: string[];
-	};
-	files: {
-		modify: FileChange[];
-		create: FileChange[];
-		delete: string[];
-	};
-}
-
-interface Conflict {
-	id: string;
-	type: 'merge' | 'dependency' | 'logic' | 'other';
-	description: string;
-	status: 'pending' | 'resolving' | 'resolved' | 'failed';
-	files: string[];
-	agentId?: string;
-	agentName?: string;
-}
-
-interface Annotation {
-	id: string;
-	content: string;
-	author: {
-		id: string;
+	insights: string[];
+	actions: {
+		description: string;
+		priority: 'high' | 'medium' | 'low';
+		status: 'pending' | 'in_progress' | 'completed';
+	}[];
+	metrics: {
 		name: string;
-		type: 'human' | 'agent';
-	};
+		baseline: number;
+		target: number;
+	}[];
+	createdAt: string;
+	completedAt?: string;
+}
+
+interface CodeAction {
+	name: string;
+	description: string;
+	handler: () => void;
+}
+
+interface FolderStructure {
+	name: string;
+	children: (FolderStructure | string)[];
+}
+
+interface ProjectChange {
+	id: string;
+	type: 'feature' | 'bugfix' | 'improvement' | 'refactor' | 'documentation';
+	title: string;
+	description: string;
+	files: {
+		path: string;
+		changeType: 'add' | 'modify' | 'delete';
+		diff?: string;
+	}[];
+	author: string;
 	timestamp: string;
-	filePath?: string;
-	lineStart?: number;
-	lineEnd?: number;
-	codeSnippet?: string;
-	replies: Annotation[];
+	status: 'proposed' | 'pending' | 'approved' | 'rejected' | 'implemented';
 }
 
 interface Checkpoint {
 	id: string;
-	timestamp: string;
-	description: string;
-	changes: {
-		modified: number;
-		created: number;
-		deleted: number;
-	};
-}
-
-interface CrewPanelState {
-	changeGroups: ChangeGroup[];
-	alternativeImplementations: Implementation[];
-	conflicts: Conflict[];
-	annotations: Annotation[];
-	checkpoints: Checkpoint[];
-	isResolvingConflicts: boolean;
-	currentUser: {
-		id: string;
-		name: string;
-	};
-	agents: Array<{
-		id: string;
-		name: string;
-	}>;
-}
-
-interface CrewPanelProps {
-	activeFlow?: FlowState;
-	suggestedFlows?: FlowSuggestion[];
-}
-
-// Utility components
-const TabButton = ({
-	active,
-	onClick,
-	icon,
-	label,
-	description,
-	tabIndex = -1
-}: {
-	active: boolean;
-	onClick: MouseEventHandler<HTMLButtonElement>;
-	icon: ReactNode;
-	label: string;
-	description: string;
-	tabIndex?: number;
-}) => {
-	const handleClick: MouseEventHandler<HTMLButtonElement> = (e) => {
-		e.preventDefault();
-		onClick(e);
-	};
-
-	const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			onClick(event as any);
-		}
-	};
-
-	return (
-		<button
-			className={`tab-button ${active ? 'active' : ''}`}
-			onClick={handleClick}
-			onKeyDown={handleKeyDown}
-			role="tab"
-			aria-selected={active}
-			aria-controls={`${label.toLowerCase()}-panel`}
-			id={`${label.toLowerCase()}-tab`}
-			tabIndex={active ? 0 : tabIndex}
-		>
-			<span className="tab-icon w-3 h-3" aria-hidden="true">{icon}</span>
-			<div className="tab-content">
-				<span className="tab-label">{label}</span>
-				<span className="tab-description">{description}</span>
-			</div>
-			<span className="tab-indicator" aria-hidden="true">
-				{active ? <ChevronsUp size={14} /> : <ChevronsDown size={14} />}
-			</span>
-		</button>
-	);
-};
-
-const SectionHeader = ({
-	title,
-	isExpanded,
-	onToggle,
-	icon
-}: {
 	title: string;
-	isExpanded: boolean;
-	onToggle: () => void;
-	icon: ReactNode;
-}) => (
-	<button
-		className={`list-item ${isExpanded ? 'active' : ''}`}
-		onClick={onToggle}
-	>
-		{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-		{icon}
-		<span>{title}</span>
-	</button>
-);
-
-// Simple AgentsTab component
-interface AgentsTabProps {
-	agents: Agent[];
-	onSelectTab?: (tabId: string) => void;
-	onSetActiveAgent?: (agentId: string) => void;
-}
-
-const AgentsTab: React.FC<AgentsTabProps> = ({ agents, onSelectTab, onSetActiveAgent }) => {
-	const handleDirectMessage = (agentId: string) => {
-		// Set the active agent for messaging
-		if (onSetActiveAgent) {
-			onSetActiveAgent(agentId);
-		}
-		
-		// Switch to the messages tab
-		if (onSelectTab) {
-			onSelectTab('messages' as any);
-		}
+	description: string;
+	timestamp: string;
+	changes: string[];
+	metadata: {
+		commitHash?: string;
+		branch?: string;
+		tags?: string[];
 	};
-
-	return (
-		<div className="agents-tab">
-			{agents.length === 0 ? (
-				<div className="no-agents">No agents created yet.</div>
-			) : (
-				agents.map((agent) => (
-					<AgentCard 
-						key={agent.id} 
-						agent={agent}
-						selected={false}
-						onSelect={() => {}}
-						onSendMessage={() => {}}
-						messages={[]} 
-						onDirectMessage={handleDirectMessage}
-					/>
-				))
-			)}
-		</div>
-	);
-};
-
-// Add this function near the top of the file, after imports
-function checkTabContentVisibility() {
-	console.log('Checking tab content visibility...');
-	
-	// Check if the dashboard tab is properly configured
-	const dashboardTab = document.querySelector('.tab-content-container');
-	if (dashboardTab) {
-		console.log('Dashboard tab found in DOM');
-		
-		// Check computed styles
-		const computedStyle = window.getComputedStyle(dashboardTab);
-		console.log('Dashboard tab computed styles:', {
-			display: computedStyle.display,
-			visibility: computedStyle.visibility,
-			opacity: computedStyle.opacity,
-			height: computedStyle.height,
-			width: computedStyle.width,
-			position: computedStyle.position,
-			zIndex: computedStyle.zIndex,
-			overflow: computedStyle.overflow
-		});
-		
-		// Check parent elements
-		let parent = dashboardTab.parentElement;
-		let depth = 1;
-		while (parent && depth <= 5) {
-			console.log(`Parent ${depth} tag:`, parent.tagName);
-			const parentStyle = window.getComputedStyle(parent);
-			console.log(`Parent ${depth} computed styles:`, {
-				display: parentStyle.display,
-				visibility: parentStyle.visibility,
-				opacity: parentStyle.opacity,
-				height: parentStyle.height,
-				width: parentStyle.width,
-				position: parentStyle.position,
-				zIndex: parentStyle.zIndex,
-				overflow: parentStyle.overflow
-			});
-			parent = parent.parentElement;
-			depth++;
-		}
-	} else {
-		console.error('Dashboard tab NOT found in DOM');
-	}
-	
-	// Check for the ConsolidatedDashboard component
-	const consolidatedDashboard = document.querySelector('.consolidated-dashboard');
-	if (consolidatedDashboard) {
-		console.log('ConsolidatedDashboard found in DOM');
-		const computedStyle = window.getComputedStyle(consolidatedDashboard);
-		console.log('ConsolidatedDashboard computed styles:', {
-			display: computedStyle.display,
-			visibility: computedStyle.visibility,
-			opacity: computedStyle.opacity,
-			height: computedStyle.height,
-			width: computedStyle.width,
-			position: computedStyle.position,
-			zIndex: computedStyle.zIndex,
-			overflow: computedStyle.overflow
-		});
-	} else {
-		console.error('ConsolidatedDashboard NOT found in DOM');
-	}
-	
-	// Check for the dashboard content
-	const dashboardContent = document.querySelector('.dashboard-content');
-	if (dashboardContent) {
-		console.log('Dashboard content found in DOM');
-		const computedStyle = window.getComputedStyle(dashboardContent);
-		console.log('Dashboard content computed styles:', {
-			display: computedStyle.display,
-			visibility: computedStyle.visibility,
-			opacity: computedStyle.opacity,
-			height: computedStyle.height,
-			width: computedStyle.width,
-			position: computedStyle.position,
-			zIndex: computedStyle.zIndex,
-			overflow: computedStyle.overflow
-		});
-	} else {
-		console.error('Dashboard content NOT found in DOM');
-	}
-	
-	// Check for the test component
-	const testComponent = document.querySelector('.dashboard-content div');
-	if (testComponent) {
-		console.log('Test component found in DOM');
-		const computedStyle = window.getComputedStyle(testComponent);
-		console.log('Test component computed styles:', {
-			display: computedStyle.display,
-			visibility: computedStyle.visibility,
-			opacity: computedStyle.opacity,
-			height: computedStyle.height,
-			width: computedStyle.width,
-			position: computedStyle.position,
-			zIndex: computedStyle.zIndex,
-			overflow: computedStyle.overflow
-		});
-	} else {
-		console.error('Test component NOT found in DOM');
-	}
 }
 
-const CrewPanelComponent = ({ activeFlow: initialActiveFlow, suggestedFlows: initialSuggestedFlows }: CrewPanelProps = {}) => {
-	// Tab configuration types
-	type TabType = 'get-started' | 'overview' | 'agents' | 'messages' | 'tasks' | 'decisions' | 'actions' | 'changes' | 'checkpoints' | 'tribe' | 'dashboard';
+interface WorkflowTemplate {
+	id: string;
+	name: string;
+	description: string;
+	steps: {
+		id: string;
+		name: string;
+		description: string;
+		assignedRole: string;
+		estimatedDuration: number;
+		dependencies: string[];
+	}[];
+	metadata: Record<string, any>;
+}
 
-	// Initialize VS Code state
-	const initialState: { projectState: ProjectState; agents: Agent[]; messages: Message[] } = vscode.getState() || {
-		projectState: {
-			initialized: false,
-			vision: '',
-			currentPhase: '',
-			activeAgents: [],
-			agents: [],
-			pendingDecisions: [],
-			tasks: [],
-			notifications: [],
-			teams: []
-		},
+interface Notification {
+	id: string;
+	type: 'info' | 'warning' | 'error' | 'success';
+	title: string;
+	message: string;
+	timestamp: string;
+	read: boolean;
+	source: 'system' | 'agent' | 'user';
+	context?: {
+		entityType?: string;
+		entityId?: string;
+	};
+}
+
+interface WorkspaceStats {
+	files: number;
+	directories: number;
+	languages: Record<string, number>;
+	totalLines: number;
+	lastModified: string;
+}
+
+// Define our tab types
+type TabType = 'get-started' | 'main-dashboard' | 'development-hub' | 'collaboration-center' | 'learning-improvement';
+
+interface Dependency {
+	name: string;
+	version: string;
+	type: 'runtime' | 'development' | 'peer' | 'optional';
+	custom?: boolean;
+}
+
+interface ProjectDependencies {
+	direct: Dependency[];
+	indirect: Dependency[];
+	vulnerable: Dependency[];
+}
+
+interface ToolDefinition {
+	name: string;
+	description: string;
+	usage: string;
+	examples: string[];
+	parameters: {
+		name: string;
+		type: string;
+		description: string;
+		required: boolean;
+		default?: any;
+	}[];
+	returns: {
+		type: string;
+		description: string;
+	};
+	category: 'file' | 'code' | 'data' | 'communication' | 'system' | 'custom';
+	enabled: boolean;
+}
+
+interface AgentDeploymentConfig {
+	id: string;
+	name: string;
+	environment: 'development' | 'staging' | 'production' | 'custom';
+	resources: {
+		cpu: number;
+		memory: number;
+		storage: number;
+	};
+	scaling: {
+		minInstances: number;
+		maxInstances: number;
+		targetCpuUtilization: number;
+	};
+	security: {
+		permissions: string[];
+		networkAccess: boolean;
+		isolationLevel: 'none' | 'container' | 'vm';
+	};
+	logging: {
+		level: 'debug' | 'info' | 'warn' | 'error';
+		retention: number;
+	};
+}
+
+interface CollaborationSession {
+	id: string;
+	title: string;
+	description: string;
+	participants: {
+		id: string;
+		name: string;
+		type: 'human' | 'agent';
+		role: string;
+	}[];
+	status: 'scheduled' | 'active' | 'completed';
+	scheduledAt?: string;
+	startedAt?: string;
+	endedAt?: string;
+	artifacts: {
+		id: string;
+		type: string;
+		name: string;
+		url?: string;
+	}[];
+}
+
+interface PendingDecision {
+	id: string;
+	title: string;
+	description: string;
+	options: {
+		id: string;
+		title: string;
+		description: string;
+		pros: string[];
+		cons: string[];
+		confidence: number;
+	}[];
+	context: {
+		requestor: string;
+		priority: 'low' | 'medium' | 'high' | 'critical';
+		dueBy?: string;
+		tags: string[];
+	};
+	status: 'open' | 'in_progress' | 'resolved' | 'cancelled';
+	createdAt: string;
+	updatedAt: string;
+	resolvedAt?: string;
+	resolution?: {
+		selectedOption: string;
+		rationale: string;
+		additionalNotes?: string;
+	};
+}
+
+export interface CrewPanelProps {
+	activeFlow?: any;
+	suggestedFlows?: any[];
+}
+
+// Main component
+export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows }) => {
+	// Get vscode API
+	const vscode = getVsCodeApi();
+	const messageListRef = useRef<HTMLDivElement>(null);
+	
+	// Set up state
+	const [activeTab, setActiveTab] = useState<TabType>('get-started');
+	const [currentMessages, setCurrentMessages] = useState<Message[]>([]);
+	const [targetAgentId, setTargetAgentId] = useState<string | null>(null);
+	const [newMessageContent, setNewMessageContent] = useState('');
+	const [sendingMessage, setSendingMessage] = useState(false);
+	
+	// Combine project state with default values for predictable rendering
+	const defaultProjectState: ProjectState = {
+		initialized: false,
+		vision: '',
+		currentPhase: '',
+		activeAgents: [],
 		agents: [],
-		messages: []
+		pendingDecisions: [],
+		tasks: [],
+		notifications: [],
+		teams: []
 	};
-
-	// All state declarations
-	const [loading, setLoading] = useState(false);
-	const [projectState, setProjectState] = useState<ProjectState>(initialState.projectState);
-	const [messages, setMessages] = useState<Message[]>(initialState.messages);
-	const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-	const [tabLoadingStates, setTabLoadingStates] = useState<Record<TabType, boolean>>({
-		'get-started': false,
-		'overview': false,
-		'agents': false,
-		'messages': false,
-		'tasks': false,
-		'decisions': false,
-		'actions': false,
-		'changes': false,
-		'checkpoints': false,
-		'tribe': false,
-		'dashboard': false
-	});
-	const [tabErrorStates, setTabErrorStates] = useState<Record<TabType, Error | null>>({} as Record<TabType, Error | null>);
-	const [activeTab, setActiveTab] = useState<TabType | null>(projectState.initialized ? 'overview' : 'get-started');
-	const [activeFlow, setActiveFlow] = useState<FlowState | null>(initialActiveFlow || null);
-	const [suggestedFlows, setSuggestedFlows] = useState<FlowSuggestion[]>(initialSuggestedFlows || []);
-	const [isAnalyzing, setIsAnalyzing] = useState(false);
-	const [agents, setAgents] = useState<Agent[]>(initialState.agents || []);
-	const [currentMessage, setCurrentMessage] = useState('');
-	const [pendingInstructions, setPendingInstructions] = useState<PendingInstruction[]>([]);
-	const [isPanelOpen, setIsPanelOpen] = useState(true);
-	const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['agents']));
-	const [currentMessageId, setCurrentMessageId] = useState('');
-	const [teamMessages, setTeamMessages] = useState<Message[]>([]);
-	const [directMessages, setDirectMessages] = useState<Record<string, Message[]>>({});
-	const [loadingAgent, setLoadingAgent] = useState<string | undefined>(undefined);
-	const [changeGroups, setChangeGroups] = useState<ChangeGroup[]>([]);
-	const [state, setState] = useState<CrewPanelState>({
-		changeGroups: [],
-		alternativeImplementations: [],
-		conflicts: [],
-		annotations: [],
-		checkpoints: [],
-		isResolvingConflicts: false,
-		currentUser: { id: 'user', name: 'You' },
-		agents: []
-	});
-
-	// Add new system state variables
-	const [projectSystemEnabled, setProjectSystemEnabled] = useState(true);
-	const [toolsSystemEnabled, setToolsSystemEnabled] = useState(true);
+	
+	const [projectState, setProjectState] = useState<ProjectState>(defaultProjectState);
+	const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(false);
+	const [isAgentPanelExpanded, setIsAgentPanelExpanded] = useState(false);
 	const [learningSystemEnabled, setLearningSystemEnabled] = useState(true);
 
 	// Tab configuration
 	const tabOrder: TabType[] = projectState.initialized
-		? ['overview', 'agents', 'messages', 'tasks', 'decisions', 'actions', 'changes', 'checkpoints', 'tribe', 'dashboard']
+		? ['main-dashboard', 'development-hub', 'collaboration-center', 'learning-improvement']
 		: ['get-started'];
+		
+	// Define state variables for subtabs
+	const [developmentSubTab, setDevelopmentSubTab] = useState<'tasks' | 'actions' | 'changes' | 'checkpoints'>('tasks');
+	const [collaborationSubTab, setCollaborationSubTab] = useState<'messages' | 'agents' | 'decisions'>('messages');
+	const [learningSubTab, setLearningSubTab] = useState<'feedback' | 'learning' | 'reflection'>('feedback');
 
 	// Add debugging logs
 	useEffect(() => {
@@ -537,469 +394,225 @@ const CrewPanelComponent = ({ activeFlow: initialActiveFlow, suggestedFlows: ini
 	const tabConfig: Record<TabType, {
 		icon: ReactNode;
 		label: string;
-		description: string;
-		errorBoundary?: boolean;
+		onClick: () => void;
+		count?: number;
+		disabled?: boolean;
 	}> = {
 		'get-started': {
-			icon: <Rocket size={16} />,
+			icon: <Rocket size={20} />,
 			label: 'Get Started',
-			description: 'Set up your project'
+			onClick: () => setActiveTab('get-started'),
+			disabled: projectState.initialized
 		},
-		overview: {
-			icon: <Activity size={16} />,
-			label: 'Overview',
-			description: 'Project overview'
-		},
-		agents: {
-			icon: <Users size={16} />,
-			label: 'Agents',
-			description: 'Manage agents'
-		},
-		messages: {
-			icon: <MessageSquare size={16} />,
-			label: 'Messages',
-			description: 'Agent messages'
-		},
-		tasks: {
-			icon: <Activity size={16} />,
-			label: 'Tasks',
-			description: 'Manage tasks'
-		},
-		decisions: {
-			icon: <GitMerge size={16} />,
-			label: 'Decisions',
-			description: 'Pending decisions'
-		},
-		actions: {
-			icon: <Code size={16} />,
-			label: 'Actions',
-			description: 'Agent actions'
-		},
-		changes: {
-			icon: <IterationCcw size={16} />,
-			label: 'Changes',
-			description: 'Code changes'
-		},
-		checkpoints: {
-			icon: <Flag size={16} />,
-			label: 'Checkpoints',
-			description: 'Code checkpoints'
-		},
-		tribe: {
-			icon: <Users size={16} />,
-			label: 'Tribe',
-			description: 'Tribe dashboard'
-		},
-		dashboard: {
-			icon: <Layers size={16} />,
+		'main-dashboard': {
+			icon: <Activity size={20} />,
 			label: 'Dashboard',
-			description: 'Consolidated project dashboard'
+			onClick: () => setActiveTab('main-dashboard'),
+			disabled: !projectState.initialized
+		},
+		'development-hub': {
+			icon: <Code size={20} />,
+			label: 'Development',
+			onClick: () => setActiveTab('development-hub'),
+			count: projectState.tasks.length,
+			disabled: !projectState.initialized
+		},
+		'collaboration-center': {
+			icon: <Users size={20} />,
+			label: 'Collaboration',
+			onClick: () => setActiveTab('collaboration-center'),
+			count: projectState.activeAgents.length,
+			disabled: !projectState.initialized
+		},
+		'learning-improvement': {
+			icon: <Brain size={20} />,
+			label: 'Learning',
+			onClick: () => setActiveTab('learning-improvement'),
+			disabled: !projectState.initialized
 		}
 	};
 
-	// Refs
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		// On mount, tell the extension we're ready
+		vscode.postMessage({ type: 'WEBVIEW_READY', });
+		
+		// Set up event listener for messages from extension
+		const messageListener = (event: MessageEvent) => {
+			const message = event.data;
+			handleIncomingMessage(message);
+		};
+		
+		window.addEventListener('message', messageListener);
+		
+		// Clean up event listener on unmount
+		return () => {
+			window.removeEventListener('message', messageListener);
+		};
+	}, []);
 
-	// Message handling
-	const handleMessage = (event: MessageEvent) => {
-		const message = event.data;
-		console.log('Webview received message:', message);
+	// Effect to scroll to bottom of message list when new messages arrive
+	useEffect(() => {
+		if (messageListRef.current) {
+			messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+		}
+	}, [currentMessages]);
 
-		switch (message.type) {
-			case 'flow-update':
-				setActiveFlow((prev: FlowState | null) => prev ? { ...prev, ...message.flow } : message.flow);
-				setLoading(false);
-				break;
-			case 'agents-update':
-			case 'AGENTS_LOADED':
-				console.log('Updating agents:', message.payload || message.agents);
-				const newAgents = (message.payload || message.agents || []).map((agent: any) => ({
-					...agent,
-					name: agent.name || agent.role || '',
-					role: agent.role || '',
-					short_description: agent.short_description || '',
-					autonomyState: agent.autonomyState || {
-						level: {
-							level: 'MEDIUM',
-							value: 0.5,
-							description: 'Default autonomy level'
-						},
-						taskTypes: {},
-						performanceHistory: [],
-						adaptationHistory: []
-					},
-					performanceMetrics: agent.performanceMetrics || {
-						successRate: 0,
-						taskCompletionTime: 0,
-						resourceUsage: 0,
-						errorRate: 0
-					},
-					tools: agent.tools || [],
-					collaborationPatterns: agent.collaborationPatterns || [],
-					learningEnabled: agent.learningEnabled || true
-				}));
-				setAgents(newAgents);
-				setProjectState((prev: ProjectState) => ({
-					...prev,
-					activeAgents: newAgents
+	// Effect to update active tab based on project state
+	useEffect(() => {
+		if (projectState.initialized && activeTab === 'get-started') {
+			setActiveTab('main-dashboard');
+		}
+	}, [projectState.initialized, activeTab]);
+
+	const handleIncomingMessage = (message: any) => {
+		console.log('Received message from extension:', message);
+		
+		switch(message.type) {
+			case 'PROJECT_STATE':
+				setProjectState(prevState => ({
+					...prevState,
+					...message.payload
 				}));
 				break;
-			case 'message':
-			case 'MESSAGE_RESPONSE':
-				const newMessage = message.content || message.payload;
-				if (message.error) {
-					console.error('Message error:', message.error);
-					setTabErrorStates(prev => ({
-						...prev,
-						messages: new Error(message.error)
-					}));
-					return;
-				}
-				
-				if (newMessage.targetAgent) {
-					// Handle direct message
-					setDirectMessages(prev => ({
-						...prev,
-						[newMessage.targetAgent]: [
-							...(prev[newMessage.targetAgent] || []),
-							{ ...newMessage, read: false }
-						]
-					}));
-				} else if (newMessage.teamId) {
-					// Handle team message
-					if (newMessage.isManagerResponse) {
-						// This is a consolidated response from a manager
-						setTeamMessages(prev => [...prev, {
-							...newMessage,
-							content: `[${newMessage.sender}] ${newMessage.content}`,
-							originalResponses: newMessage.originalResponses,
-							read: false
-						}]);
-					} else {
-						setTeamMessages(prev => [...prev, { ...newMessage, read: false }]);
-					}
-				}
-				setLoading(false);
+			case 'AGENT_MESSAGE':
+				handleNewAgentMessage(message.payload);
 				break;
-			case 'MESSAGE_UPDATE':
-				const updatedMessage = message.payload;
-				console.log('Message update received:', updatedMessage);
-				
-				// If this is a completed message, clear the loading indicator
-				if (updatedMessage.status === 'complete') {
-					setLoadingAgent(undefined);
-				}
-				
-				// Check if this is a VP response (team coordination)
-				if (updatedMessage.isVPResponse) {
-					// This is a response from VP of Engineering (team coordination)
-					setTeamMessages(prev => {
-						const existingMessageIndex = prev.findIndex(msg => msg.id === updatedMessage.id);
-						
-						if (existingMessageIndex >= 0) {
-							// Update existing message
-							return prev.map((msg, index) => 
-								index === existingMessageIndex ? { ...msg, ...updatedMessage } : msg
-							);
-						} else {
-							// Add new message
-							return [...prev, { 
-								...updatedMessage, 
-								teamId: 'root', // Ensure team ID is set
-								read: false 
-							}];
-						}
-					});
-				}
-				// Check if this is a direct agent response
-				else if (updatedMessage.targetAgent) {
-					// Update direct message
-					setDirectMessages(prev => {
-						const agentMessages = prev[updatedMessage.targetAgent] || [];
-						const existingMessageIndex = agentMessages.findIndex(msg => msg.id === updatedMessage.id);
-						
-						if (existingMessageIndex >= 0) {
-							// Update existing message
-							return {
-								...prev,
-								[updatedMessage.targetAgent]: agentMessages.map((msg, index) => 
-									index === existingMessageIndex ? { ...msg, ...updatedMessage } : msg
-								)
-							};
-						} else {
-							// Add new message
-							return {
-								...prev,
-								[updatedMessage.targetAgent]: [
-									...agentMessages,
-									{ ...updatedMessage, read: false }
-								]
-							};
-						}
-					});
-				} 
-				// Check if this is a team message
-				else if (updatedMessage.teamId) {
-					// Update team message
-					setTeamMessages(prev => {
-						const existingMessageIndex = prev.findIndex(msg => msg.id === updatedMessage.id);
-						
-						if (existingMessageIndex >= 0) {
-							// Update existing message
-							return prev.map((msg, index) => 
-								index === existingMessageIndex ? { ...msg, ...updatedMessage } : msg
-							);
-						} else {
-							// Add new message
-							return [...prev, { ...updatedMessage, read: false }];
-						}
-					});
-				} 
-				// Regular message (not direct or team)
-				else {
-					// For backward compatibility, add to general messages
-					setMessages(prev => {
-						const existingMessageIndex = prev.findIndex(msg => msg.id === updatedMessage.id);
-						
-						if (existingMessageIndex >= 0) {
-							// Update existing message
-							return prev.map((msg, index) => 
-								index === existingMessageIndex ? { ...msg, ...updatedMessage } : msg
-							);
-						} else {
-							// Add new message
-							return [...prev, { ...updatedMessage, read: false }];
-						}
-					});
-				}
+			case 'AGENT_MESSAGE_UPDATE':
+				handleAgentMessageUpdate(message.payload);
 				break;
-			case 'analysis-complete':
-				setLoading(false);
-				setSuggestedFlows(message.flows || []);
-				setIsAnalyzing(false);
-				break;
-			case 'teamCreated':
-				console.log('Team created:', message.payload);
-				// Handle the team creation response
-				const teamData = message.payload;
-				const teamAgents = (teamData.agents || []).map((agent: { 
-					id?: string;
-					name?: string;
-					role?: string;
-					status?: string;
-					backstory?: string;
-					short_description?: string;
-					autonomyState?: any;
-					performanceMetrics?: any;
-					tools?: any[];
-					collaborationPatterns?: any[];
-					learningEnabled?: boolean;
-				}) => ({
-					id: agent.id || '',
-					name: agent.name || agent.role || '',
-					role: agent.role || '',
-					status: agent.status || 'active',
-					backstory: agent.backstory || '',
-					short_description: agent.short_description || '',
-					autonomyState: agent.autonomyState || {
-						level: {
-							level: 'MEDIUM',
-							value: 0.5,
-							description: 'Default autonomy level'
-						},
-						taskTypes: {},
-						performanceHistory: [],
-						adaptationHistory: []
-					},
-					performanceMetrics: agent.performanceMetrics || {
-						successRate: 0,
-						taskCompletionTime: 0,
-						resourceUsage: 0,
-						errorRate: 0
-					},
-					tools: agent.tools || [],
-					collaborationPatterns: agent.collaborationPatterns || [],
-					learningEnabled: agent.learningEnabled || true
-				}));
-				
-				// Find VP of Engineering in team agents
-				const vpAgent = teamAgents.find((agent: Agent) => agent.role === 'VP of Engineering');
-				
-				setProjectState((prev: ProjectState) => ({
-					...prev,
-					initialized: true,
-					vision: teamData.vision || prev.vision,
-					currentPhase: 'Team Created',
-					activeAgents: teamAgents,
-					tasks: teamData.tasks || prev.tasks || [],
-					vpAgent: vpAgent || null  // Set VP of Engineering state
-				}));
-				setAgents(teamAgents);
-				setLoading(false);
-				setActiveTab('overview');
+			case 'AGENT_ERROR':
+				handleAgentError(message.payload);
 				break;
 			case 'PROJECT_INITIALIZED':
-				console.log('Project initialized:', message.payload);
-				const initData = message.payload;
-				const initAgents = (initData.agents || []).map((agent: any) => ({
-					...agent,
-					name: agent.name || agent.role || '',
-					role: agent.role || '',
-					short_description: agent.short_description || '',
-					autonomyState: agent.autonomyState || {
-						level: {
-							level: 'MEDIUM',
-							value: 0.5,
-							description: 'Default autonomy level'
-						},
-						taskTypes: {},
-						performanceHistory: [],
-						adaptationHistory: []
-					},
-					performanceMetrics: agent.performanceMetrics || {
-						successRate: 0,
-						taskCompletionTime: 0,
-						resourceUsage: 0,
-						errorRate: 0
-					},
-					tools: agent.tools || [],
-					collaborationPatterns: agent.collaborationPatterns || [],
-					learningEnabled: agent.learningEnabled || true
-				}));
-				
-				// Find VP of Engineering in initialized agents
-				const initializedVP = initAgents.find((agent: Agent) => agent.role === 'VP of Engineering');
-				
-				setProjectState((prev: ProjectState) => ({
-					...prev,
+				setProjectState(prevState => ({
+					...prevState,
 					initialized: true,
-					vision: initData.vision || prev.vision,
-					currentPhase: initData.currentPhase || 'Project Initialized',
-					activeAgents: initAgents,
-					vpAgent: initializedVP || null  // Set VP of Engineering state
+					vision: message.payload.vision,
+					currentPhase: message.payload.currentPhase
 				}));
-				if (initAgents.length > 0) {
-					setAgents(initAgents);
-				}
-				setLoading(false);
+				setActiveTab('main-dashboard');
 				break;
-			case 'AGENT_CREATED':
-				console.log('Agent created:', message.payload);
-				setAgents((prev: Agent[]) => [...prev, message.payload]);
-				break;
-			case 'TASK_CREATED':
-				console.log('Task created:', message.payload);
-				setProjectState((prev: ProjectState) => ({
-					...prev,
-					tasks: [...(prev.tasks || []), message.payload]
+			case 'NEW_AGENT_ADDED':
+				setProjectState(prevState => ({
+					...prevState,
+					agents: [...prevState.agents, message.payload.agent],
+					activeAgents: message.payload.active 
+						? [...prevState.activeAgents, message.payload.agent]
+						: prevState.activeAgents
 				}));
 				break;
-			case 'error':
-				console.error('Error received:', message.payload);
-				// Handle error messages
-				const tabType = getTabTypeFromError(message.payload);
-				if (tabType) {
-					setTabErrorStates((prev) => ({
-						...prev,
-						[tabType]: new Error(message.payload)
+			case 'AGENT_ACTIVATED':
+				const agentToActivate = projectState.agents.find(a => a.id === message.payload.agentId);
+				if (agentToActivate && !projectState.activeAgents.some(a => a.id === agentToActivate.id)) {
+					setProjectState(prevState => ({
+						...prevState,
+						activeAgents: [...prevState.activeAgents, agentToActivate]
 					}));
 				}
-				setLoading(false);
 				break;
-			case 'AUTONOMY_UPDATED':
-				console.log('Agent autonomy updated:', message.payload);
-				setAgents((prev: Agent[]) => prev.map(agent => 
-					agent.id === message.payload.agentId
-						? { ...agent, ...message.payload.updates }
-						: agent
-				));
+			case 'AGENT_DEACTIVATED':
+				setProjectState(prevState => ({
+					...prevState,
+					activeAgents: prevState.activeAgents.filter(a => a.id !== message.payload.agentId)
+				}));
 				break;
-			case 'LOADING_INDICATOR':
-				// Set the loading agent
-				console.log('Setting loading agent:', message.payload.sender);
-				if (message.payload && message.payload.sender) {
-					setLoadingAgent(message.payload.sender);
-				} else {
-					console.warn('LOADING_INDICATOR received without sender:', message);
-				}
+			case 'NEW_TASK_ADDED':
+				setProjectState(prevState => ({
+					...prevState,
+					tasks: [...prevState.tasks, message.payload.task]
+				}));
 				break;
-				
-			case 'HIDE_LOADING_INDICATOR':
-				// Clear the loading agent
-				console.log('Clearing loading agent');
-				setLoadingAgent(undefined);
+			case 'TASK_UPDATED':
+				setProjectState(prevState => ({
+					...prevState,
+					tasks: prevState.tasks.map(t => 
+						t.id === message.payload.task.id ? message.payload.task : t
+					)
+				}));
 				break;
-			case 'FLOW_EXECUTED':
-				const { proposedChanges, result, state } = message.payload;
-				const flowId = state?.flowId || `flow-${Date.now()}`;
-				const agentId = state?.agentId || 'unknown';
-				const agent = agents.find(a => a.id === agentId);
-				
-				// Create a change group from the flow execution result
-				const newGroup = {
-					id: flowId,
-					title: state?.flowName || 'Proposed Changes',
-					description: result?.summary || 'Changes proposed by the agent',
-					agentId,
-					agentName: agent?.name || agent?.role || 'Unknown Agent',
-					timestamp: new Date().toISOString(),
-					files: {
-						modify: proposedChanges.filesToModify || [],
-						create: proposedChanges.filesToCreate || [],
-						delete: proposedChanges.filesToDelete || []
-					}
-				};
-				
-				setChangeGroups(prev => [...prev, newGroup]);
-				setActiveFlow({
-					flowType: 'code',
-					result,
-					state,
-					visualizations: message.payload.visualizations || [],
-					proposedChanges
-				});
+			case 'TASK_REMOVED':
+				setProjectState(prevState => ({
+					...prevState,
+					tasks: prevState.tasks.filter(t => t.id !== message.payload.taskId)
+				}));
 				break;
-			case 'CHANGES_APPLIED':
-				setLoading(false);
-				// Remove the applied change group
-				if (activeFlow?.proposedChanges) {
-					setChangeGroups(prev => prev.filter(group => 
-						!(JSON.stringify(group.files) === JSON.stringify({
-							modify: activeFlow.proposedChanges.filesToModify || [],
-							create: activeFlow.proposedChanges.filesToCreate || [],
-							delete: activeFlow.proposedChanges.filesToDelete || []
-						}))
-					));
-				}
-				setActiveFlow(null);
-				vscode.postMessage({ type: 'GET_AGENTS' });
+			case 'NEW_DECISION_ADDED':
+				setProjectState(prevState => ({
+					...prevState,
+					pendingDecisions: [...prevState.pendingDecisions, message.payload.decision]
+				}));
 				break;
-			case 'CHANGES_REJECTED':
-				setLoading(false);
-				// Remove the rejected change group
-				if (activeFlow?.proposedChanges) {
-					setChangeGroups(prev => prev.filter(group => 
-						!(JSON.stringify(group.files) === JSON.stringify({
-							modify: activeFlow.proposedChanges.filesToModify || [],
-							create: activeFlow.proposedChanges.filesToCreate || [],
-							delete: activeFlow.proposedChanges.filesToDelete || []
-						}))
-					));
-				}
-				setActiveFlow(null);
+			case 'DECISION_UPDATED':
+				setProjectState(prevState => ({
+					...prevState,
+					pendingDecisions: prevState.pendingDecisions.map(d => 
+						d.id === message.payload.decision.id ? message.payload.decision : d
+					)
+				}));
 				break;
-			case 'updateState':
-				setState(message.payload);
+			case 'DECISION_REMOVED':
+				setProjectState(prevState => ({
+					...prevState,
+					pendingDecisions: prevState.pendingDecisions.filter(d => d.id !== message.payload.decisionId)
+				}));
 				break;
-			case 'PROJECT_MANAGEMENT_STATUS':
-				setProjectSystemEnabled(message.payload.enabled);
+			case 'NEW_NOTIFICATION':
+				setProjectState(prevState => ({
+					...prevState,
+					notifications: [...prevState.notifications, message.payload.notification]
+				}));
 				break;
-				
-			case 'TOOLS_SYSTEM_STATUS':
-				setToolsSystemEnabled(message.payload.enabled);
+			case 'NOTIFICATION_READ':
+				setProjectState(prevState => ({
+					...prevState,
+					notifications: prevState.notifications.map(n => 
+						n.id === message.payload.notificationId ? {...n, read: true} : n
+					)
+				}));
 				break;
-				
-			case 'LEARNING_SYSTEM_STATUS':
+			case 'CLEAR_NOTIFICATIONS':
+				setProjectState(prevState => ({
+					...prevState,
+					notifications: prevState.notifications.filter(n => !n.read)
+				}));
+				break;
+			case 'AGENT_STATUS_UPDATED':
+				setProjectState(prevState => ({
+					...prevState,
+					agents: prevState.agents.map(a => 
+						a.id === message.payload.agentId 
+							? {...a, status: message.payload.status} 
+							: a
+					),
+					activeAgents: prevState.activeAgents.map(a => 
+						a.id === message.payload.agentId 
+							? {...a, status: message.payload.status} 
+							: a
+					)
+				}));
+				break;
+			case 'PROJECT_PHASE_UPDATED':
+				setProjectState(prevState => ({
+					...prevState,
+					currentPhase: message.payload.phase
+				}));
+				break;
+			case 'AGENT_AUTONOMY_UPDATED':
+				setProjectState(prevState => ({
+					...prevState,
+					agents: prevState.agents.map(a => 
+						a.id === message.payload.agentId 
+							? {...a, autonomyState: message.payload.autonomyState} 
+							: a
+					),
+					activeAgents: prevState.activeAgents.map(a => 
+						a.id === message.payload.agentId 
+							? {...a, autonomyState: message.payload.autonomyState} 
+							: a
+					)
+				}));
+				break;
+			case 'LEARNING_SYSTEM_TOGGLED':
 				setLearningSystemEnabled(message.payload.enabled);
 				break;
 			default:
@@ -1009,396 +622,289 @@ const CrewPanelComponent = ({ activeFlow: initialActiveFlow, suggestedFlows: ini
 
 	// Helper function to determine which tab had an error
 	const getTabTypeFromError = (error: string): TabType | null => {
-		if (error.toLowerCase().includes('agent')) return 'agents';
-		if (error.toLowerCase().includes('task')) return 'tasks';
-		if (error.toLowerCase().includes('message')) return 'messages';
-		if (error.toLowerCase().includes('team')) return 'get-started';
+		const errorText = error.toLowerCase();
+		
+		// Map errors to main tabs
+		if (errorText.includes('get started') || errorText.includes('team') || errorText.includes('initialize')) {
+			return 'get-started';
+		}
+		
+		if (errorText.includes('dashboard') || errorText.includes('overview') || errorText.includes('project')) {
+			return 'main-dashboard';
+		}
+		
+		if (errorText.includes('task') || errorText.includes('action') || errorText.includes('change') || 
+			errorText.includes('code') || errorText.includes('development')) {
+			return 'development-hub';
+		}
+		
+		if (errorText.includes('agent') || errorText.includes('team') || errorText.includes('message') || 
+			errorText.includes('collaboration') || errorText.includes('decision')) {
+			return 'collaboration-center';
+		}
+		
+		if (errorText.includes('learning') || errorText.includes('improve') || 
+			errorText.includes('feedback') || errorText.includes('reflection')) {
+			return 'learning-improvement';
+		}
+		
 		return null;
 	};
 
-	// Effect to add message listener
-	useEffect(() => {
-		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
-	}, []);
-
-	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-	}, [messages]);
-
-	const handleSendMessage = async () => {
-		if (!currentMessage.trim() || !selectedAgent) return;
-
-		const newMessage: Message = {
-			id: Date.now().toString(),
-			sender: 'User',
-			content: currentMessage,
+	const handleAgentError = (payload: any) => {
+		// Create an error message
+		const errorMessage: Message = {
+			id: `error-${Date.now()}`,
+			sender: payload.agentId || 'system',
+			content: `Error: ${payload.error}`,
 			timestamp: new Date().toISOString(),
-			type: 'user' as const
+			type: 'system',
+			isError: true
 		};
+		
+		setCurrentMessages(prevMessages => [...prevMessages, errorMessage]);
+		
+		// Navigate to the right tab if we can determine it
+		const relevantTab = getTabTypeFromError(payload.error);
+		if (relevantTab) {
+			setActiveTab(relevantTab);
+		}
+	};
 
-		setMessages((prev: Message[]) => [...prev, newMessage]);
-		setCurrentMessage('');
-		setLoading(true);
+	const handleNewAgentMessage = (payload: any) => {
+		// Determine if this is a loading message
+		const isLoading = payload.status === 'loading';
+		
+		// Create the message object
+		const message: Message = {
+			id: payload.id || `msg-${Date.now()}`,
+			sender: payload.sender,
+			content: payload.content || '',
+			timestamp: payload.timestamp || new Date().toISOString(),
+			type: payload.type || 'agent',
+			targetAgent: payload.targetAgent,
+			teamId: payload.teamId,
+			isManagerResponse: payload.isManagerResponse,
+			isVPResponse: payload.isVPResponse,
+			isTeamMessage: payload.isTeamMessage,
+			status: payload.status,
+			isLoading,
+			originalResponses: payload.originalResponses
+		};
+		
+		// If we have a loading message with the same ID, replace it
+		if (payload.id) {
+			setCurrentMessages(prevMessages => {
+				const existingMessageIndex = prevMessages.findIndex(m => m.id === payload.id);
+				if (existingMessageIndex >= 0) {
+					const updatedMessages = [...prevMessages];
+					updatedMessages[existingMessageIndex] = message;
+					return updatedMessages;
+				}
+				return [...prevMessages, message];
+			});
+		} else {
+			// Otherwise just add the new message
+			setCurrentMessages(prevMessages => [...prevMessages, message]);
+		}
+	};
 
+	const handleAgentMessageUpdate = (payload: any) => {
+		// Update an existing message
+		setCurrentMessages(prevMessages => {
+			return prevMessages.map(message => {
+				if (message.id === payload.id) {
+					return {
+						...message,
+						content: payload.content || message.content,
+						status: payload.status || message.status,
+						isLoading: payload.status === 'loading',
+						isError: payload.status === 'error',
+					};
+				}
+				return message;
+			});
+		});
+	};
+
+	const sendMessage = () => {
+		if (!newMessageContent.trim()) return;
+		
+		// Create user message
+		const userMessage: Message = {
+			id: `user-${Date.now()}`,
+			sender: 'user',
+			content: newMessageContent,
+			timestamp: new Date().toISOString(),
+			type: 'user',
+			targetAgent: targetAgentId || undefined
+		};
+		
+		// Add to messages state
+		setCurrentMessages(prevMessages => [...prevMessages, userMessage]);
+		
+		// Create loading message for agent response
+		const loadingMessage: Message = {
+			id: `agent-${Date.now()}`,
+			sender: targetAgentId || 'agent',
+			content: '',
+			timestamp: new Date().toISOString(),
+			type: 'agent',
+			targetAgent: targetAgentId || undefined,
+			isLoading: true,
+			status: 'loading'
+		};
+		
+		// Add loading message
+		setCurrentMessages(prevMessages => [...prevMessages, loadingMessage]);
+		
+		// Send message to extension
 		vscode.postMessage({
 			type: 'SEND_MESSAGE',
 			payload: {
-				message: currentMessage,
-				agentId: selectedAgent.id
+				content: newMessageContent,
+				targetAgent: targetAgentId,
+				loadingMessageId: loadingMessage.id
 			}
 		});
+		
+		// Clear input
+		setNewMessageContent('');
+		setSendingMessage(false);
 	};
 
-	const handleAcceptChanges = () => {
-		if (!activeFlow?.proposedChanges) return;
-
-		try {
-			setLoading(true);
-			vscode.postMessage({
-				type: 'APPLY_CHANGES',
-				payload: activeFlow.proposedChanges
-			});
-		} catch (error) {
-			console.error('Failed to apply changes:', error);
-			setLoading(false);
+	const handleKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			sendMessage();
 		}
 	};
 
-	const handleRejectChanges = () => {
-		try {
-			setLoading(true);
-			vscode.postMessage({
-				type: 'REJECT_CHANGES',
-				payload: activeFlow?.proposedChanges
-			});
-			setActiveFlow(null);
-		} catch (error) {
-			console.error('Failed to reject changes:', error);
-		} finally {
-			setLoading(false);
-		}
+	const handleAgentSelect = (agent: Agent) => {
+		setTargetAgentId(agent.id);
+		setIsAgentPanelOpen(false);
 	};
 
-	const handlePendingInstruction = (question: string, context: string) => {
-		const newInstruction: PendingInstruction = {
-			id: Date.now().toString(),
-			question,
-			context,
-			timestamp: new Date().toISOString()
-		};
-
-		setPendingInstructions(prev => [...prev, newInstruction]);
+	const handleInitializeProject = (projectData: any) => {
 		vscode.postMessage({
-			type: 'PENDING_INSTRUCTION',
-			payload: newInstruction
+			type: 'INITIALIZE_PROJECT',
+			payload: projectData
 		});
 	};
 
-	const handleAutonomyUpdate = (agentId: string, updates: Partial<Agent>) => {
+	const handleToggleAgentPanel = () => {
+		setIsAgentPanelOpen(!isAgentPanelOpen);
+	};
+
+	const handleExpandAgentPanel = () => {
+		setIsAgentPanelExpanded(!isAgentPanelExpanded);
+	};
+
+	const handleCreateTeam = (teamData: any) => {
 		vscode.postMessage({
-			type: 'UPDATE_AGENT_AUTONOMY',
-			payload: {
-				agentId,
-				updates
-			}
+			type: 'CREATE_TEAM',
+			payload: teamData
 		});
 	};
 
-	const handleTeamMessage = async (message: string) => {
-		if (!message.trim() || !projectState.vpAgent) return;
-
-		const newMessage: TeamMessage = {
-			id: Date.now().toString(),
-			sender: 'User',
-			content: message,
-			timestamp: new Date().toISOString(),
-			type: 'user',
-			teamId: 'root', // Root team ID for VP of Engineering
-			targetAgent: projectState.vpAgent.id
-		};
-
-		// Add to team messages
-		setTeamMessages(prev => [...prev, newMessage]);
-		
-		// Send message to VP of Engineering who will coordinate with the team
+	const handleAddAgent = (agentData: any) => {
 		vscode.postMessage({
-			type: 'SEND_AGENT_MESSAGE',
-			payload: {
-				agentId: projectState.vpAgent.id,
-				message,
-				isVPMessage: true,
-				isTeamMessage: true // Indicates this needs team coordination
-			}
+			type: 'ADD_AGENT',
+			payload: agentData
 		});
 	};
 
-	const handleDirectMessage = async (agentId: string, message: string) => {
-		if (!message.trim()) return;
-
-		const newMessage: Message = {
-			id: Date.now().toString(),
-			sender: 'User',
-			content: message,
-			timestamp: new Date().toISOString(),
-			type: 'user',
-			targetAgent: agentId
-		};
-
-		// Add to direct messages
-		setDirectMessages(prev => ({
-			...prev,
-			[agentId]: [...(prev[agentId] || []), newMessage]
-		}));
-
-		// Send message directly to the agent
+	const handleActivateAgent = (agentId: string) => {
 		vscode.postMessage({
-			type: 'SEND_AGENT_MESSAGE',
-			payload: {
-				agentId,
-				message,
-				isVPMessage: false,
-				isTeamMessage: false,
-				direct: true // Bypass hierarchy for direct messages
-			}
+			type: 'ACTIVATE_AGENT',
+			payload: { agentId }
 		});
 	};
 
-	const handleAcceptGroup = (groupId: string) => {
-		const group = changeGroups.find(g => g.id === groupId);
-		if (!group) return;
-		
-		setLoading(true);
+	const handleDeactivateAgent = (agentId: string) => {
 		vscode.postMessage({
-			type: 'acceptGroup',
-			payload: { groupId }
+			type: 'DEACTIVATE_AGENT',
+			payload: { agentId }
 		});
 	};
 
-	const handleRejectGroup = (groupId: string) => {
-		const group = changeGroups.find(g => g.id === groupId);
-		if (!group) return;
-		
-		setLoading(true);
+	const handleSubmitTask = (taskData: any) => {
 		vscode.postMessage({
-			type: 'rejectGroup',
-			payload: { groupId }
-		});
-		
-		// Remove the group from the list
-		setChangeGroups(prev => prev.filter(g => g.id !== groupId));
-	};
-
-	const handleAcceptFile = (groupId: string, filePath: string, fileType: 'modify' | 'create' | 'delete') => {
-		const group = changeGroups.find(g => g.id === groupId);
-		if (!group) return;
-		
-		// Create a payload with just this file
-		const payload: any = {
-			filesToModify: [],
-			filesToCreate: [],
-			filesToDelete: []
-		};
-		
-		if (fileType === 'modify') {
-			const file = group.files.modify.find(f => f.path === filePath);
-			if (file) payload.filesToModify = [file];
-		} else if (fileType === 'create') {
-			const file = group.files.create.find(f => f.path === filePath);
-			if (file) payload.filesToCreate = [file];
-		} else if (fileType === 'delete') {
-			payload.filesToDelete = [filePath];
-		}
-		
-		setLoading(true);
-		vscode.postMessage({
-			type: 'acceptFile',
-			payload
-		});
-		
-		// Update the group to remove this file
-		setChangeGroups(prev => prev.map(g => {
-			if (g.id !== groupId) return g;
-			
-			const updatedGroup = { ...g };
-			if (fileType === 'modify') {
-				updatedGroup.files.modify = updatedGroup.files.modify.filter(f => f.path !== filePath);
-			} else if (fileType === 'create') {
-				updatedGroup.files.create = updatedGroup.files.create.filter(f => f.path !== filePath);
-			} else if (fileType === 'delete') {
-				updatedGroup.files.delete = updatedGroup.files.delete.filter(p => p !== filePath);
-			}
-			
-			return updatedGroup;
-		}));
-	};
-
-	const handleRejectFile = (groupId: string, filePath: string, fileType: 'modify' | 'create' | 'delete') => {
-		// Update the group to remove this file
-		setChangeGroups(prev => prev.map(g => {
-			if (g.id !== groupId) return g;
-			
-			const updatedGroup = { ...g };
-			if (fileType === 'modify') {
-				updatedGroup.files.modify = updatedGroup.files.modify.filter(f => f.path !== filePath);
-			} else if (fileType === 'create') {
-				updatedGroup.files.create = updatedGroup.files.create.filter(f => f.path !== filePath);
-			} else if (fileType === 'delete') {
-				updatedGroup.files.delete = updatedGroup.files.delete.filter(p => p !== filePath);
-			}
-			
-			return updatedGroup;
-		}));
-	};
-
-	const handleModifyChange = (groupId: string, filePath: string, newContent: string) => {
-		setChangeGroups(prev => prev.map(g => {
-			if (g.id !== groupId) return g;
-			
-			const updatedGroup = { ...g };
-			
-			// Check if it's a file to modify
-			const modifyIndex = updatedGroup.files.modify.findIndex(f => f.path === filePath);
-			if (modifyIndex >= 0) {
-				updatedGroup.files.modify[modifyIndex].content = newContent;
-				return updatedGroup;
-			}
-			
-			// Check if it's a file to create
-			const createIndex = updatedGroup.files.create.findIndex(f => f.path === filePath);
-			if (createIndex >= 0) {
-				updatedGroup.files.create[createIndex].content = newContent;
-				return updatedGroup;
-			}
-			
-			return g;
-		}));
-	};
-
-	const handleRequestExplanation = (groupId: string, filePath: string) => {
-		// In a real implementation, this would request an explanation from the agent
-		// For now, we'll just add a placeholder explanation
-		setChangeGroups(prev => prev.map(g => {
-			if (g.id !== groupId) return g;
-			
-			const updatedGroup = { ...g };
-			
-			// Check if it's a file to modify
-			const modifyIndex = updatedGroup.files.modify.findIndex(f => f.path === filePath);
-			if (modifyIndex >= 0) {
-				updatedGroup.files.modify[modifyIndex].explanation = 
-					`This change modifies ${filePath} to implement the requested functionality. ` +
-					`The key changes include updating function signatures, adding error handling, ` +
-					`and improving performance through optimized algorithms.`;
-				return updatedGroup;
-			}
-			
-			// Check if it's a file to create
-			const createIndex = updatedGroup.files.create.findIndex(f => f.path === filePath);
-			if (createIndex >= 0) {
-				updatedGroup.files.create[createIndex].explanation = 
-					`This new file ${filePath} is created to support the new feature. ` +
-					`It contains utility functions and components that will be used across the application.`;
-				return updatedGroup;
-			}
-			
-			return g;
-		}));
-	};
-
-	const handleSelectImplementation = (implementationId: string) => {
-		vscode.postMessage({
-			type: 'selectImplementation',
-			payload: { implementationId }
+			type: 'ADD_TASK',
+			payload: { task: taskData }
 		});
 	};
 
-	const handleDismissImplementations = () => {
+	const handleUpdateTask = (taskId: string, updates: any) => {
 		vscode.postMessage({
-			type: 'dismissImplementations',
-			payload: { action: 'dismiss' }
+			type: 'UPDATE_TASK',
+			payload: { taskId, updates }
 		});
 	};
 
-	const handleAddAnnotation = (annotation: Omit<Annotation, 'id' | 'timestamp' | 'replies'>) => {
+	const handleSubmitDecision = (decisionData: any) => {
 		vscode.postMessage({
-			type: 'addAnnotation',
-			payload: { annotation }
+			type: 'ADD_DECISION',
+			payload: { decision: decisionData }
 		});
 	};
 
-	const handleEditAnnotation = (id: string, content: string) => {
+	const handleResolveDecision = (decisionId: string, resolution: any) => {
 		vscode.postMessage({
-			type: 'editAnnotation',
-			payload: { id, content }
+			type: 'RESOLVE_DECISION',
+			payload: { decisionId, resolution }
 		});
 	};
 
-	const handleDeleteAnnotation = (id: string) => {
+	const handleAcceptChange = (changeId: string) => {
 		vscode.postMessage({
-			type: 'deleteAnnotation',
-			payload: { id }
+			type: 'ACCEPT_CHANGE',
+			payload: { changeId }
 		});
 	};
 
-	const handleReplyToAnnotation = (parentId: string, reply: Omit<Annotation, 'id' | 'timestamp' | 'replies'>) => {
+	const handleRejectChange = (changeId: string) => {
 		vscode.postMessage({
-			type: 'replyToAnnotation',
-			payload: { parentId, reply }
+			type: 'REJECT_CHANGE',
+			payload: { changeId }
+		});
+	};
+
+	const handleCreateCheckpoint = (checkpointData: any) => {
+		vscode.postMessage({
+			type: 'CREATE_CHECKPOINT',
+			payload: checkpointData
 		});
 	};
 
 	const handleRestoreCheckpoint = (checkpointId: string) => {
 		vscode.postMessage({
-			type: 'restoreCheckpoint',
+			type: 'RESTORE_CHECKPOINT',
 			payload: { checkpointId }
 		});
 	};
 
-	const handleDeleteCheckpoint = (checkpointId: string) => {
+	const handleSelectWorkflowTemplate = (templateId: string) => {
 		vscode.postMessage({
-			type: 'deleteCheckpoint',
-			payload: { checkpointId }
+			type: 'SELECT_WORKFLOW_TEMPLATE',
+			payload: { templateId }
 		});
 	};
 
-	const handleViewCheckpointDiff = (checkpointId: string) => {
+	const handleExecuteWorkflow = (workflowData: any) => {
 		vscode.postMessage({
-			type: 'viewCheckpointDiff',
-			payload: { checkpointId }
+			type: 'EXECUTE_WORKFLOW',
+			payload: workflowData
 		});
 	};
 
-	const handleCreateCheckpoint = (description: string) => {
+	const handleModifyAgentAutonomy = (agentId: string, autonomyData: any) => {
 		vscode.postMessage({
-			type: 'createCheckpoint',
-			payload: { description }
+			type: 'MODIFY_AGENT_AUTONOMY',
+			payload: { agentId, ...autonomyData }
 		});
 	};
 
-	// Add handlers for system toggles
-	const handleToggleProjectSystem = (enabled: boolean) => {
-		setProjectSystemEnabled(enabled);
-		// Notify the extension
-		vscode.postMessage({
-			type: 'TOGGLE_PROJECT_MANAGEMENT',
-			payload: {
-				enabled
-			}
-		});
-	};
-	
-	const handleToggleToolsSystem = (enabled: boolean) => {
-		setToolsSystemEnabled(enabled);
-		// Notify the extension
-		vscode.postMessage({
-			type: 'TOGGLE_TOOLS_SYSTEM',
-			payload: {
-				enabled
-			}
-		});
-	};
-	
 	const handleToggleLearningSystem = (enabled: boolean) => {
 		setLearningSystemEnabled(enabled);
 		// Notify the extension
@@ -1412,84 +918,135 @@ const CrewPanelComponent = ({ activeFlow: initialActiveFlow, suggestedFlows: ini
 
 	const renderHeader = () => (
 		<div className="sticky top-0 z-10 backdrop-blur-lg backdrop-filter border-b border-gray-700/30 p-2">
-			<div className="flex items-center space-x-3">
-				<div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-					<svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-					</svg>
+			<div className="flex items-center justify-between">
+				<div className="flex items-center space-x-3">
+					<div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+						<svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
+					</div>
+					<h1 className="text-base font-semibold text-white">Tribe</h1>
 				</div>
-				<h1 className="text-base font-semibold text-white">Tribe</h1>
+				<button 
+					className="p-1 rounded-md hover:bg-gray-700/30 transition-colors" 
+					onClick={() => {
+						// Skip confirmation
+						{
+							vscode.postMessage({
+								type: 'RESET_TRIBE',
+								payload: {}
+							});
+						}
+					}}
+					title="Reset Tribe"
+				>
+					<svg className="w-5 h-5 text-gray-300 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+				</button>
 			</div>
 			<div className="tab-container">
-				{tabOrder.map(tab => {
-					const isActive = activeTab === tab;
-					const config = tabConfig[tab];
-
-					return (
-						<TabButton
-							key={tab}
-							active={isActive}
-							onClick={() => setActiveTab(isActive ? null : tab)}
-							icon={config.icon}
-							label={config.label}
-							description={config.description}
-						/>
-					);
-				})}
+				{tabOrder.map((tab) => (
+					<button
+						key={tab}
+						className={`tab-button ${activeTab === tab ? 'active' : ''} ${tabConfig[tab].disabled ? 'disabled' : ''}`}
+						onClick={tabConfig[tab].onClick}
+						disabled={tabConfig[tab].disabled}
+					>
+						{tabConfig[tab].icon}
+						<span>{tabConfig[tab].label}</span>
+						{tabConfig[tab].count !== undefined && tabConfig[tab].count > 0 && (
+							<span className="tab-badge">{tabConfig[tab].count}</span>
+						)}
+					</button>
+				))}
 			</div>
 		</div>
 	);
 
-	const getPanelClasses = () => {
-		const baseClasses = "flex flex-col h-screen border-r border-gray-700/30 transition-all duration-500 ease-in-out";
-		return `${baseClasses} ${isPanelOpen ? 'w-full md:w-96' : 'w-16'}`;
-	};
-
-	// Tab loading states
-	const setTabLoading = (tab: TabType, loading: boolean) => {
-		setTabLoadingStates(prev => ({ ...prev, [tab]: loading }));
-	};
-
-	const setTabError = (tab: TabType, error: Error | null) => {
-		setTabErrorStates(prev => ({ ...prev, [tab]: error }));
-	};
+	const renderSubTabs = (
+		tabType: 'development' | 'collaboration' | 'learning',
+		activeSubTab: string,
+		setActiveSubTab: React.Dispatch<React.SetStateAction<any>>,
+		subTabs: { value: string; label: string; icon: ReactNode }[]
+	) => (
+		<div className="subtab-container">
+			{subTabs.map((subTab) => (
+				<button
+					key={subTab.value}
+					className={`subtab-button ${activeSubTab === subTab.value ? 'active' : ''}`}
+					onClick={() => setActiveSubTab(subTab.value as any)}
+				>
+					{subTab.icon}
+					<span>{subTab.label}</span>
+				</button>
+			))}
+		</div>
+	);
 
 	const renderTabContent = () => {
-		switch (activeTab) {
-			case 'get-started':
-				return (
-					<GetStarted
-						onSubmit={(vision) => {
-							vscode.postMessage({
-								type: 'INITIALIZE_PROJECT',
-								payload: { vision }
-							});
-						}}
-					/>
-				);
-			case 'overview':
-				return (
-					<div className="overview-tab">
-						<div className="overview-header">
-							<h2>Project Vision</h2>
-							<p>{projectState.vision}</p>
-						</div>
+		// Get Started tab
+		if (activeTab === 'get-started') {
+			return (
+				<GetStarted
+					onInitialize={handleInitializeProject}
+					onCreateTeam={handleCreateTeam}
+					onAddAgent={handleAddAgent}
+				/>
+			);
+		}
+
+		// Require initialization for all other tabs
+		if (!projectState.initialized) {
+			return (
+				<div className="not-initialized">
+					<h2>Not Initialized</h2>
+					<p>Please initialize the project in the Get Started tab.</p>
+				</div>
+			);
+		}
+
+		// Main Dashboard
+		if (activeTab === 'main-dashboard') {
+			return (
+				<div className="dashboard-container">
+					<div className="top-section">
+						<ConsolidatedDashboard 
+							agents={projectState.activeAgents}
+							selectedAgent={null}
+							projectSystemEnabled={true}
+							toolsSystemEnabled={true}
+							learningSystemEnabled={learningSystemEnabled}
+							onToggleProjectSystem={() => {}}
+							onToggleToolsSystem={() => {}}
+							onToggleLearningSystem={handleToggleLearningSystem}
+							tasks={projectState.tasks}
+							pendingDecisions={projectState.pendingDecisions}
+							notifications={projectState.notifications}
+							currentPhase={projectState.currentPhase}
+							vision={projectState.vision}
+						/>
 						<div className="overview-content">
-							<div className="overview-section">
+							<div className="card">
+								<h2>Project Vision</h2>
+								<p>{projectState.vision || 'No vision set'}</p>
 								<h3>Current Phase</h3>
-								<p>{projectState.currentPhase || 'Planning'}</p>
+								<div className="badge">
+									{projectState.currentPhase || 'Not started'}
+								</div>
 							</div>
 							<div className="overview-section">
 								<h3>Active Agents</h3>
 								<div className="overview-agents">
 									{projectState.activeAgents.map((agent) => (
-										<div key={agent.id} className="overview-agent">
+										<div key={agent.id} className="overview-agent-compact">
 											<div className="overview-agent-avatar">
 												{agent.name?.substring(0, 2) || agent.role.substring(0, 2)}
 											</div>
 											<div className="overview-agent-info">
 												<div className="overview-agent-name">{agent.name || agent.role}</div>
-												<div className="overview-agent-role">{agent.short_description || agent.role}</div>
+												<div className="overview-agent-role">{agent.role}</div>
 											</div>
 										</div>
 									))}
@@ -1497,397 +1054,341 @@ const CrewPanelComponent = ({ activeFlow: initialActiveFlow, suggestedFlows: ini
 							</div>
 						</div>
 					</div>
-				);
-			case 'agents':
-				return (
-					<div className="agents-tab">
-						<div className="agents-list">
-							{projectState.activeAgents.map((agent) => (
-								<AgentCard
-									key={agent.id}
-									agent={agent}
-									selected={selectedAgent?.id === agent.id}
-									onSelect={(agent) => setSelectedAgent(agent)}
-									onSendMessage={(agentId, message) => {
-										vscode.postMessage({
-											type: 'SEND_AGENT_MESSAGE',
-											payload: { agentId, message }
-										});
-									}}
-									onUpdateAutonomy={(agentId, updates) => handleAutonomyUpdate(agentId, updates)}
-									messages={messages.filter(m => m.sender === agent.id || m.targetAgent === agent.id)}
-								/>
-							))}
-						</div>
-					</div>
-				);
-			case 'messages':
-				return (
-					<div className="messages-tab">
-						<div className="chat-container">
-							<ChatWindow
-								messages={messages}
-								onSendMessage={handleSendMessage}
-							/>
-						</div>
-					</div>
-				);
-			case 'tasks':
-				return (
-					<div className="tasks-tab">
-						<TaskList
-							tasks={[]}
-						/>
-					</div>
-				);
-			case 'decisions':
-				return (
-					<div className="decisions-tab">
-						<DecisionPanel
-							decisions={projectState.pendingDecisions}
-							onAccept={(decisionId, option) => {
-								vscode.postMessage({
-									type: 'ACCEPT_DECISION',
-									payload: { decisionId, option }
-								});
-							}}
-							onReject={(decisionId) => {
-								vscode.postMessage({
-									type: 'REJECT_DECISION',
-									payload: { decisionId }
-								});
-							}}
-						/>
-					</div>
-				);
-			case 'actions':
-				return (
-					<div className="actions-tab">
-						<ActionPanel
-							onCreateAgent={(description) => {
-								vscode.postMessage({
-									type: 'CREATE_AGENT',
-									payload: { description }
-								});
-							}}
-							onCreateTask={(description) => {
-								vscode.postMessage({
-									type: 'CREATE_TASK',
-									payload: { description }
-								});
-							}}
-							onCreateFlow={(description) => {
-								vscode.postMessage({
-									type: 'CREATE_FLOW',
-									payload: { description }
-								});
-							}}
-							onCreateTool={(description) => {
-								vscode.postMessage({
-									type: 'CREATE_TOOL',
-									payload: { description }
-								});
-							}}
-						/>
-					</div>
-				);
-			case 'tribe':
-				return (
-					<TribeDashboard />
-				);
-			case 'dashboard':
-				return (
-					<div className="dashboard-tab-wrapper">
-						<ConsolidatedDashboard
-							agents={projectState.activeAgents}
-							selectedAgent={selectedAgent}
-							projectSystemEnabled={projectSystemEnabled}
-							toolsSystemEnabled={toolsSystemEnabled}
+					<div className="bottom-section">
+						<ProjectDashboard 
+							projectState={projectState}
 							learningSystemEnabled={learningSystemEnabled}
-							onToggleProjectSystem={handleToggleProjectSystem}
-							onToggleToolsSystem={handleToggleToolsSystem}
-							onToggleLearningSystem={handleToggleLearningSystem}
+							agents={projectState.activeAgents}
+							systemEnabled={true}
+							onToggleSystem={() => {}}
 						/>
 					</div>
-				);
-			default:
-				return null;
+				</div>
+			);
 		}
+
+		// Development Hub
+		if (activeTab === 'development-hub') {
+			const developmentSubTabs = [
+				{ value: 'tasks', label: 'Tasks', icon: <Clipboard size={16} /> },
+				{ value: 'actions', label: 'Actions', icon: <Wrench size={16} /> },
+				{ value: 'changes', label: 'Changes', icon: <GitMerge size={16} /> },
+				{ value: 'checkpoints', label: 'Checkpoints', icon: <Flag size={16} /> }
+			];
+
+			return (
+				<div className="development-container">
+					{renderSubTabs('development', developmentSubTab, setDevelopmentSubTab, developmentSubTabs)}
+					
+					<div className="development-content">
+						{developmentSubTab === 'tasks' && (
+							<TaskList tasks={projectState.tasks.map(task => ({
+								id: task.id,
+								title: task.title,
+								description: task.description,
+								status: task.status as any,
+								assignedTo: task.assignee || 'Unassigned',
+								crew: 'Development Team', // This would come from proper team data
+								priority: task.priority as any
+							}))} />
+						)}
+						
+						{developmentSubTab === 'actions' && (
+							<ActionPanel 
+								projectState={projectState}
+								onExecuteAction={(action) => {
+									vscode.postMessage({
+										type: 'EXECUTE_ACTION',
+										payload: { action }
+									});
+								}}
+								onCreateAgent={(description) => {}}
+								onCreateTask={(description) => {}}
+								onCreateFlow={(description) => {}}
+								onCreateTool={(description) => {}}
+							/>
+						)}
+						
+						{developmentSubTab === 'changes' && (
+							<DiffNavigationPortal 
+								changeGroups={[]} // This would come from actual change data
+								onAcceptGroup={(groupId) => handleAcceptChange(groupId)}
+								onRejectGroup={(groupId) => handleRejectChange(groupId)}
+								onAcceptFile={(groupId, filePath, type) => {
+									vscode.postMessage({
+										type: 'ACCEPT_FILE_CHANGE',
+										payload: { groupId, filePath, type }
+									});
+								}}
+								onRejectFile={(groupId, filePath, type) => {
+									vscode.postMessage({
+										type: 'REJECT_FILE_CHANGE',
+										payload: { groupId, filePath, type }
+									});
+								}}
+								onModifyChange={(groupId, filePath, newContent) => {
+									vscode.postMessage({
+										type: 'MODIFY_FILE_CHANGE',
+										payload: { groupId, filePath, newContent }
+									});
+								}}
+								onRequestExplanation={(groupId, filePath) => {
+									vscode.postMessage({
+										type: 'REQUEST_CHANGE_EXPLANATION',
+										payload: { groupId, filePath }
+									});
+								}}
+							/>
+						)}
+						
+						{developmentSubTab === 'checkpoints' && (
+							<ChangeCheckpoints 
+								checkpoints={[]} // This would come from actual checkpoint data
+								onCreateCheckpoint={handleCreateCheckpoint}
+								onRestoreCheckpoint={handleRestoreCheckpoint}
+								onDeleteCheckpoint={(checkpointId) => {}}
+								onViewCheckpointDiff={(checkpointId) => {}}
+							/>
+						)}
+					</div>
+				</div>
+			);
+		}
+
+		// Collaboration Center
+		if (activeTab === 'collaboration-center') {
+			const collaborationSubTabs = [
+				{ value: 'messages', label: 'Messages', icon: <MessageSquare size={16} /> },
+				{ value: 'agents', label: 'Agents', icon: <Users size={16} /> },
+				{ value: 'decisions', label: 'Decisions', icon: <Bolt size={16} /> }
+			];
+
+			return (
+				<div className="collaboration-container">
+					{renderSubTabs('collaboration', collaborationSubTab, setCollaborationSubTab, collaborationSubTabs)}
+					
+					<div className="collaboration-content">
+						{collaborationSubTab === 'messages' && (
+							<div className="chat-container">
+								<div className="sidebar">
+									<div className="sidebar-header">
+										<h3>Active Agents</h3>
+										<button 
+											className="toggle-button"
+											onClick={handleToggleAgentPanel}
+											aria-label="Toggle agent panel"
+										>
+											{isAgentPanelOpen ? <ChevronRight size={16} /> : <ChevronRight size={16} />}
+										</button>
+									</div>
+									{isAgentPanelOpen && (
+										<div className={`agent-list ${isAgentPanelExpanded ? 'expanded' : ''}`}>
+											<div className="agent-list-header">
+												<h4>Agents</h4>
+												<button 
+													className="expand-button"
+													onClick={handleExpandAgentPanel}
+													aria-label="Expand agent panel"
+												>
+													{isAgentPanelExpanded ? <ChevronsDown size={16} /> : <ChevronsUp size={16} />}
+												</button>
+											</div>
+											{projectState.activeAgents.map((agent) => (
+												<AgentCard 
+													key={agent.id}
+													agent={agent}
+													isSelected={targetAgentId === agent.id}
+													onClick={() => handleAgentSelect(agent)}
+													expanded={isAgentPanelExpanded}
+												/>
+											))}
+										</div>
+									)}
+								</div>
+								
+								<div className="main-content">
+									<ChatWindow 
+										messages={currentMessages}
+										currentAgentId={targetAgentId}
+										agents={projectState.activeAgents}
+										messageListRef={messageListRef}
+									/>
+									
+									<div className="message-input-container">
+										<textarea
+											className="message-input"
+											value={newMessageContent}
+											onChange={(e) => setNewMessageContent(e.target.value)}
+											onKeyDown={handleKeyDown}
+											placeholder={`Message ${targetAgentId ? projectState.activeAgents.find(a => a.id === targetAgentId)?.name || 'selected agent' : 'all agents'}...`}
+											disabled={sendingMessage}
+										/>
+										<button 
+											className="send-button"
+											onClick={sendMessage}
+											disabled={!newMessageContent.trim() || sendingMessage}
+										>
+											<Send size={16} />
+										</button>
+									</div>
+								</div>
+							</div>
+						)}
+						
+						{collaborationSubTab === 'agents' && (
+							<div className="agents-grid">
+								{projectState.activeAgents.map((agent) => (
+									<div key={agent.id} className="agent-card">
+										<AgentCard 
+											agent={agent}
+											expanded={true}
+											showControls={true}
+											onActivate={() => handleActivateAgent(agent.id)}
+											onDeactivate={() => handleDeactivateAgent(agent.id)}
+										/>
+									</div>
+								))}
+							</div>
+						)}
+						
+						{collaborationSubTab === 'decisions' && (
+							<DecisionPanel 
+								decisions={projectState.pendingDecisions}
+								agents={projectState.activeAgents}
+								onResolveDecision={handleResolveDecision}
+								onSubmitDecision={handleSubmitDecision}
+							/>
+						)}
+					</div>
+				</div>
+			);
+		}
+
+		// Learning & Improvement
+		if (activeTab === 'learning-improvement') {
+			const learningSubTabs = [
+				{ value: 'feedback', label: 'Feedback', icon: <MessageSquare size={16} /> },
+				{ value: 'learning', label: 'Learning', icon: <Brain size={16} /> },
+				{ value: 'reflection', label: 'Reflection', icon: <IterationCcw size={16} /> }
+			];
+
+			return (
+				<div className="learning-container">
+					{renderSubTabs('learning', learningSubTab, setLearningSubTab, learningSubTabs)}
+					
+					<div className="learning-content">
+						{learningSubTab === 'feedback' && (
+							<FeedbackSystem
+								agents={projectState.activeAgents.map(agent => ({ id: agent.id, name: agent.name || agent.role }))}
+								onSubmitFeedback={(feedback) => {
+									return new Promise((resolve) => {
+										vscode.postMessage({
+											type: 'COLLECT_FEEDBACK',
+											payload: { 
+												sourceId: feedback.sourceId, 
+												targetId: feedback.targetId, 
+												feedbackType: feedback.feedbackType, 
+												content: feedback.content 
+											}
+										});
+										resolve({ success: true });
+									});
+								}}
+								onAnalyzeFeedback={(request) => {
+									return new Promise((resolve) => {
+										vscode.postMessage({
+											type: 'ANALYZE_FEEDBACK',
+											payload: { 
+												targetId: request.targetId, 
+												feedbackTypes: request.feedbackTypes 
+											}
+										});
+										resolve({ success: true });
+									});
+								}}
+							/>
+						)}
+						
+						{learningSubTab === 'learning' && (
+							<LearningSystem
+										onCaptureExperience={(experience) => {
+											return new Promise((resolve) => {
+												vscode.postMessage({
+													type: 'CAPTURE_EXPERIENCE',
+													payload: { 
+														agentId: experience.agent_id, 
+														context: experience.context, 
+														decision: experience.decision, 
+														outcome: experience.outcome 
+													}
+												});
+												resolve({ success: true });
+											});
+										}}
+										onExtractPatterns={(agentId, topic) => {
+											return new Promise((resolve) => {
+												vscode.postMessage({
+													type: 'EXTRACT_PATTERNS',
+													payload: { agentId, topic }
+												});
+												resolve({ success: true });
+											});
+										}}
+										agentNames={projectState.activeAgents.reduce((acc: Record<string, string>, agent) => {
+											acc[agent.id] = agent.name || agent.role;
+											return acc;
+										}, {})}
+									/>
+						)}
+						{learningSubTab === 'reflection' && (
+							<ReflectionSystem
+								onCreateReflection={(agents, focus, reflectionAgent) => {
+									return new Promise((resolve) => {
+										vscode.postMessage({
+											type: 'CREATE_REFLECTION',
+											payload: { agents, focus, reflectionAgent }
+										});
+										resolve({ success: true });
+									});
+								}}
+								onExtractInsights={(agentId, reflectionTypes) => {
+									return new Promise((resolve) => {
+										vscode.postMessage({
+											type: 'EXTRACT_INSIGHTS',
+											payload: { agentId, reflectionTypes }
+										});
+										resolve({ success: true });
+									});
+								}}
+								onCreateImprovementPlan={(agentId, opportunities) => {
+									return new Promise((resolve) => {
+										vscode.postMessage({
+											type: 'CREATE_IMPROVEMENT_PLAN',
+											payload: { agentId, opportunities }
+										});
+										resolve({ success: true });
+									});
+								}}
+								agents={projectState.activeAgents.map(agent => ({ id: agent.id, name: agent.name || agent.role }))}
+							/>
+						)}
+					</div>
+				</div>
+			);
+		}
+
+		return null;
 	};
 
 	return (
 		<div className="crew-panel">
-			<div className="logo-container">
-				<div className="logo">
-					<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-					</svg>
-				</div>
-				<h1>Tribe</h1>
-			</div>
-
-			{/* Tab Navigation and Content */}
-			<nav className="tabs-nav" role="tablist" onKeyDown={(event) => {
-				if (!activeTab) {
-					if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'Home') {
-						event.preventDefault();
-						setActiveTab(tabOrder[0]);
-					}
-					return;
-				}
-
-				const currentIndex = tabOrder.indexOf(activeTab);
-				let nextIndex: number;
-
-				switch (event.key) {
-					case 'ArrowDown':
-					case 'ArrowRight':
-						event.preventDefault();
-						nextIndex = (currentIndex + 1) % tabOrder.length;
-						setActiveTab(tabOrder[nextIndex]);
-						break;
-
-					case 'ArrowUp':
-					case 'ArrowLeft':
-						event.preventDefault();
-						nextIndex = (currentIndex - 1 + tabOrder.length) % tabOrder.length;
-						setActiveTab(tabOrder[nextIndex]);
-						break;
-
-					case 'Home':
-						event.preventDefault();
-						setActiveTab(tabOrder[0]);
-						break;
-
-					case 'End':
-						event.preventDefault();
-						setActiveTab(tabOrder[tabOrder.length - 1]);
-						break;
-				}
-			}} aria-label="Crew Panel Navigation">
-				{tabOrder.map(tab => {
-					const isActive = activeTab === tab;
-					const config = tabConfig[tab];
-
-					return (
-						<div key={tab} className="tab-section">
-							<TabButton
-								active={isActive}
-								onClick={() => setActiveTab(isActive ? null : tab)}
-								icon={config.icon}
-								label={config.label}
-								description={config.description}
-							/>
-							{isActive && (
-								<TabContent
-									isActive={isActive}
-									isLoading={tabLoadingStates[tab]}
-									hasError={!!tabErrorStates[tab]}
-									error={tabErrorStates[tab]}
-									onError={(error: Error) => setTabError(tab, error)}
-									useErrorBoundary={config.errorBoundary}
-								>
-									{tab === 'get-started' && (
-										<GetStarted
-											onSubmit={(description) => {
-												vscode.postMessage({
-													type: 'createTeam',
-													payload: { description }
-												});
-											}}
-										/>
-									)}
-									{tab === 'overview' && (
-										<div className="overview-content">
-											<div className="card">
-												<h2>Project Vision</h2>
-												<p>{projectState.vision || 'No vision set'}</p>
-											</div>
-											<div className="card">
-												<h2>Current Phase</h2>
-												<div className="badge">
-													{projectState.currentPhase || 'Not started'}
-												</div>
-											</div>
-											{activeFlow && (
-												<div className="card active">
-													<h2>Active Flow</h2>
-													<p>{activeFlow.flowType}</p>
-												</div>
-											)}
-										</div>
-									)}
-									{tab === 'agents' && (
-										<div className="agents-content">
-											{(!Array.isArray(projectState?.activeAgents) || projectState.activeAgents.length === 0) ? (
-												<div className="empty-state">
-													<p>Create a team by describing your project</p>
-													<button
-														className="button primary"
-														onClick={() => setActiveTab('get-started')}
-													>
-														Get Started
-													</button>
-												</div>
-											) : (
-												<AgentsTab
-													agents={projectState.activeAgents}
-													onSelectTab={(tabId: string) => setActiveTab(tabId as TabType)}
-													onSetActiveAgent={(agentId) => {
-														// Find the agent by ID
-														const agent = projectState.activeAgents.find((a: Agent) => a.id === agentId);
-														if (agent) {
-															setSelectedAgent(agent);
-														}
-													}}
-												/>
-											)}
-										</div>
-									)}
-									{tab === 'messages' && (
-										<div className="messages-content">
-											<div className="vp-header">
-												<div className="vp-info">
-													<h3>{projectState.vpAgent?.name || 'VP of Engineering'}</h3>
-													<span className="role">{projectState.vpAgent?.short_description || projectState.vpAgent?.role || 'Team Lead'}</span>
-												</div>
-											</div>
-											<ChatWindow
-												messages={teamMessages}
-												onSendMessage={handleTeamMessage}
-												placeholder="Send a message to the entire team..."
-												disabled={loading}
-												loadingAgent={loadingAgent}
-											/>
-											{!projectState.vpAgent && (
-												<div className="no-vp-message">
-													Waiting for VP of Engineering initialization...
-												</div>
-											)}
-										</div>
-									)}
-									{tab === 'tasks' && (
-										<TaskList tasks={projectState.tasks || []} />
-									)}
-									{tab === 'decisions' && (
-										<DecisionPanel
-											decisions={projectState.pendingDecisions}
-											onAccept={(decisionId, option) => {
-												vscode.postMessage({
-													type: 'ACCEPT_DECISION',
-													payload: { decisionId, option }
-												});
-											}}
-											onReject={(decisionId) => {
-												vscode.postMessage({
-													type: 'REJECT_DECISION',
-													payload: { decisionId }
-												});
-											}}
-										/>
-									)}
-									{tab === 'actions' && (
-										<ActionPanel 
-											onCreateAgent={(description) => {
-												vscode.postMessage({
-													type: 'CREATE_AGENT',
-													payload: { description }
-												});
-											}}
-											onCreateTask={(description) => {
-												vscode.postMessage({
-													type: 'CREATE_TASK',
-													payload: { description }
-												});
-											}}
-											onCreateFlow={(description) => {
-												vscode.postMessage({
-													type: 'CREATE_FLOW',
-													payload: { description }
-												});
-											}}
-											onCreateTool={(description) => {
-												vscode.postMessage({
-													type: 'CREATE_TOOL',
-													payload: { description }
-												});
-											}}
-										/>
-									)}
-									{tab === 'changes' && (
-										<TabContent
-											isActive={true}
-											isLoading={false}
-											hasError={false}
-											error={null}
-											onError={() => {}}
-										>
-											<DiffNavigationPortal
-												changeGroups={changeGroups}
-												onAcceptGroup={(groupId) => handleAcceptGroup(groupId)}
-												onRejectGroup={(groupId) => handleRejectGroup(groupId)}
-												onAcceptFile={(groupId, filePath, fileType) => handleAcceptFile(groupId, filePath, fileType)}
-												onRejectFile={(groupId, filePath, fileType) => handleRejectFile(groupId, filePath, fileType)}
-												onModifyChange={(groupId, filePath, newContent) => handleModifyChange(groupId, filePath, newContent)}
-												onRequestExplanation={(groupId, filePath) => handleRequestExplanation(groupId, filePath)}
-												onViewInEditor={(filePath, lineNumber) => {
-													vscode.postMessage({
-														command: 'openFile',
-														filePath,
-														lineNumber
-													});
-												}}
-											/>
-										</TabContent>
-									)}
-									{tab === 'checkpoints' && (
-										<TabContent
-											isActive={true}
-											isLoading={false}
-											hasError={false}
-											error={null}
-											onError={() => {}}
-										>
-											<ChangeCheckpoints
-												checkpoints={state.checkpoints.map(checkpoint => ({
-													...checkpoint,
-													metadata: {
-														agentId: '',
-														agentName: '',
-													},
-													changes: {
-														filesModified: checkpoint.changes.modified,
-														filesCreated: checkpoint.changes.created,
-														filesDeleted: checkpoint.changes.deleted
-													}
-												}))}
-												onRestoreCheckpoint={handleRestoreCheckpoint}
-												onDeleteCheckpoint={handleDeleteCheckpoint}
-												onViewCheckpointDiff={handleViewCheckpointDiff}
-											/>
-										</TabContent>
-									)}
-									{tab === 'tribe' && (
-										<TabContent
-											isActive={true}
-											isLoading={false}
-											hasError={false}
-											error={null}
-											onError={() => {}}
-										>
-											<TribeDashboard />
-										</TabContent>
-									)}
-								</TabContent>
-							)}
-						</div>
-					);
-				})}
-			</nav>
+			{renderHeader()}
+			<TabContent>
+				{renderTabContent()}
+			</TabContent>
 		</div>
 	);
-}
+};
 
-const CrewPanel = React.memo(CrewPanelComponent);
-
+// Add default export
 export default CrewPanel;

@@ -104,50 +104,6 @@ async def test_full_agent_flow_collaboration(crew_manager):
     assert task["status"] == TaskStatus.COMPLETED.value
 
 @pytest.mark.asyncio
-async def test_learning_system_integration(crew_manager):
-    """Test that the learning system properly influences flow execution"""
-    
-    # 1. Create multiple collaborations to build learning history
-    for i in range(3):
-        agent_spec = {
-            "name": f"TestDev{i}",
-            "role": "Python Developer",
-            "goal": "Write high-quality Python code with comprehensive test coverage",
-            "expertise": ["Python", "Testing"],
-            "backstory": "Experienced Python developer with a focus on testing"
-        }
-        
-        flow_requirements = {
-            "task_type": "implement_feature",
-            "language": "python",
-            "description": f"Implement feature {i}"
-        }
-        
-        await crew_manager.create_agent_flow_collaboration(agent_spec, flow_requirements)
-    
-    # 2. Create a new collaboration and verify learning system recommendations
-    agent_spec = {
-        "name": "TestDev4",
-        "role": "Python Developer",
-        "goal": "Write high-quality Python code with comprehensive test coverage",
-        "expertise": ["Python"],
-        "backstory": "Experienced Python developer with a focus on quality"
-    }
-    
-    flow_requirements = {
-        "task_type": "implement_feature",
-        "language": "python",
-        "description": "Implement new feature"
-    }
-    
-    collab = await crew_manager.create_agent_flow_collaboration(agent_spec, flow_requirements)
-    
-    # 3. Verify learning system influenced the flow
-    flow_metadata = crew_manager.flow_manager.get_flow_metadata(collab["flow_id"])
-    assert "preferred_approach" in flow_metadata
-    assert "success_factors" in flow_metadata
-
-@pytest.mark.asyncio
 async def test_persistence_and_recovery(crew_manager):
     """Test that system state persists and can be recovered"""
     

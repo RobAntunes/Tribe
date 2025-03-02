@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { DiffService } from '../services/diffService';
 import { FileChange } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -49,6 +49,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					}
 				},
 				'RECORD_HISTORY_ENTRY',
+				ErrorCategory.SYSTEM,
 				'Record a history entry with changes',
 			),
 		),
@@ -68,6 +69,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					return historyEntries;
 				},
 				'GET_HISTORY',
+				ErrorCategory.SYSTEM,
 				'Get history entries',
 			),
 		),
@@ -87,6 +89,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					return true;
 				},
 				'CLEAR_HISTORY',
+				ErrorCategory.SYSTEM,
 				'Clear all history entries',
 			),
 		),
@@ -161,6 +164,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					}
 				},
 				'VIEW_HISTORY_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff for a history entry',
 			),
 		),
@@ -283,6 +287,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					}
 				},
 				'REVERT_HISTORY_ENTRY',
+				ErrorCategory.SYSTEM,
 				'Revert changes from a history entry',
 			),
 		),
@@ -345,6 +350,7 @@ export function registerHistoryCommands(context: vscode.ExtensionContext): void 
 					}
 				},
 				'SHOW_HISTORY_VIEW',
+				ErrorCategory.SYSTEM,
 				'Show history view',
 			),
 		),

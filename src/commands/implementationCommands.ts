@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { DiffService } from '../services/diffService';
 import { CreateImplementationPayload, ApplyImplementationPayload } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -53,6 +53,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					}
 				},
 				'CREATE_IMPLEMENTATION',
+				ErrorCategory.SYSTEM,
 				'Create an implementation for a feature or bug fix',
 			),
 		),
@@ -72,6 +73,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					return implementations;
 				},
 				'GET_IMPLEMENTATIONS',
+				ErrorCategory.SYSTEM,
 				'Get all implementations or implementations with a specific status',
 			),
 		),
@@ -88,6 +90,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					return true;
 				},
 				'DELETE_IMPLEMENTATION',
+				ErrorCategory.SYSTEM,
 				'Delete an implementation',
 			),
 		),
@@ -174,6 +177,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					}
 				},
 				'APPLY_IMPLEMENTATION',
+				ErrorCategory.SYSTEM,
 				'Apply an implementation to the workspace',
 			),
 		),
@@ -254,6 +258,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					}
 				},
 				'VIEW_IMPLEMENTATION_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff for an implementation',
 			),
 		),
@@ -292,6 +297,7 @@ export function registerImplementationCommands(context: vscode.ExtensionContext)
 					}
 				},
 				'UPDATE_IMPLEMENTATION_STATUS',
+				ErrorCategory.SYSTEM,
 				'Update the status of an implementation',
 			),
 		),

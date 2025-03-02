@@ -330,15 +330,13 @@ export const ToolsPanel: React.FC<ToolsPanelProps> = ({
           <h3>Tools Management</h3>
         </div>
         
-        <div className="tools-system-toggle">
-          <span>System Status:</span>
-          <div 
-            className={`toggle-switch ${systemEnabled ? 'active' : ''}`}
-            onClick={handleToggleSystem}
-          >
-            <div className="toggle-slider"></div>
-          </div>
-        </div>
+        <button 
+          className="settings-cog-button"
+          onClick={handleToggleSystem}
+          title={systemEnabled ? "Disable Tools System" : "Enable Tools System"}
+        >
+          <Settings size={16} />
+        </button>
       </div>
       
       {systemEnabled ? (

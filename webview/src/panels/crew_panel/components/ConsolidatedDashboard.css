@@ -131,6 +131,13 @@
 .card-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -138,6 +145,124 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 500;
+}
+
+.settings-menu-container {
+  position: relative;
+}
+
+.settings-cog-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background-color: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--vscode-foreground);
+}
+
+.settings-cog-button:hover {
+  background-color: var(--tribe-primary);
+  color: white;
+  border-color: var(--tribe-primary);
+  transform: rotate(15deg);
+}
+
+.settings-cog-button:active {
+  transform: rotate(30deg);
+}
+
+.settings-popover {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  width: 250px;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: popoverFadeIn 0.2s ease;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.popover-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.popover-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.popover-content {
+  padding: 12px;
+}
+
+.popover-toggle {
+  margin-bottom: 16px;
+}
+
+.popover-toggle label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toggle-button {
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 14px;
+  padding: 4px 12px;
+  min-width: 60px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-button.active {
+  background-color: var(--vscode-terminal-ansiGreen);
+  color: white;
+  border-color: var(--vscode-terminal-ansiGreen);
+}
+
+.popover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-button {
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.action-button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
 .card-metrics {
@@ -316,6 +441,37 @@
     margin-left: 4px;
     font-size: 0.8rem;
   }
+  
+  /* Make sure popover menus don't overflow on smaller screens */
+  .settings-popover {
+    width: 220px;
+    right: -10px;
+  }
+  
+  /* Adjust metrics display for smaller screens */
+  .card-metrics {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  /* Make status indicators more compact */
+  .status-indicator {
+    padding: 2px 6px;
+    font-size: 0.7rem;
+  }
+  
+  /* Adjust agent avatars for better small screen display */
+  .agent-avatars {
+    gap: 12px;
+    justify-content: center;
+  }
+  
+  .agent-avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 0.8rem;
+  }
 }
 
 /* For very small screens, make tabs even more compact */
@@ -327,5 +483,69 @@
   
   .dashboard-content {
     padding: 12px;
+  }
+  
+  /* Stack tab buttons on very small screens */
+  .dashboard-tabs {
+    flex-direction: column;
+    gap: 4px;
+    max-width: 100px;
+    margin-right: 10px;
+  }
+  
+  /* Adjust the layout to side-by-side tabs and content */
+  .consolidated-dashboard {
+    display: flex;
+    flex-direction: row;
+  }
+  
+  /* Adjust the content area to take remaining space */
+  .dashboard-content {
+    flex: 1;
+  }
+  
+  /* Make settings buttons smaller on very small screens */
+  .settings-cog-button {
+    width: 26px;
+    height: 26px;
+  }
+  
+  /* Further adjust popovers for tiny screens */
+  .settings-popover {
+    width: 200px;
+    right: -20px;
+  }
+  
+  /* Simplify card appearance for tiny screens */
+  .overview-card {
+    padding: 10px;
+    gap: 10px;
+  }
+  
+  .card-title h4 {
+    font-size: 0.9rem;
+  }
+}
+
+/* Ensure popovers don't go off-screen on the left side */
+@media (max-width: 320px) {
+  .settings-popover {
+    right: 0;
+    left: auto;
+    width: 180px;
+  }
+  
+  .popover-header h4 {
+    font-size: 0.9rem;
+  }
+  
+  .action-button {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+  }
+  
+  .toggle-button {
+    min-width: 50px;
+    padding: 2px 8px;
   }
 } 

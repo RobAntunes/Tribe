@@ -22,9 +22,9 @@
   --vscode-badge-fg: var(--vscode-badge-foreground);
   
   /* Tribe custom colors */
-  --tribe-primary: #6366f1;
-  --tribe-primary-light: #a4bcfc;
-  --tribe-primary-dark: #4338ca;
+  --tribe-primary: #2977c9;
+  --tribe-primary-light: #4a90d6;
+  --tribe-primary-dark: #1e5c9e;
   --tribe-secondary: #64748b;
   --tribe-secondary-light: #94a3b8;
   --tribe-secondary-dark: #334155;

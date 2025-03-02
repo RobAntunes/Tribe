@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { DiffService } from '../services/diffService';
 import { CreateConflictPayload, ResolveConflictPayload } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -54,6 +54,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					}
 				},
 				'CREATE_CONFLICT',
+				ErrorCategory.SYSTEM,
 				'Create a conflict record for a file',
 			),
 		),
@@ -73,6 +74,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					return conflicts;
 				},
 				'GET_CONFLICTS',
+				ErrorCategory.SYSTEM,
 				'Get all conflicts or conflicts with a specific status',
 			),
 		),
@@ -89,6 +91,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					return true;
 				},
 				'DELETE_CONFLICT',
+				ErrorCategory.SYSTEM,
 				'Delete a conflict',
 			),
 		),
@@ -142,6 +145,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					}
 				},
 				'RESOLVE_CONFLICT',
+				ErrorCategory.SYSTEM,
 				'Resolve a conflict with custom content',
 			),
 		),
@@ -198,6 +202,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					}
 				},
 				'RESOLVE_CONFLICT_WITH_AGENT',
+				ErrorCategory.SYSTEM,
 				'Resolve a conflict using agent changes',
 			),
 		),
@@ -254,6 +259,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					}
 				},
 				'RESOLVE_CONFLICT_WITH_USER',
+				ErrorCategory.SYSTEM,
 				'Resolve a conflict using user changes',
 			),
 		),
@@ -325,6 +331,7 @@ export function registerConflictCommands(context: vscode.ExtensionContext): void
 					}
 				},
 				'VIEW_CONFLICT_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff for a conflict',
 			),
 		),
@@ -414,6 +421,7 @@ ${userContent}
 					}
 				},
 				'MERGE_CONFLICT_CHANGES',
+				ErrorCategory.SYSTEM,
 				'Merge changes for a conflict',
 			),
 		),

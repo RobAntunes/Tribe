@@ -55,43 +55,5 @@ class DynamicAgent:
     def __str__(self):
         return f"Agent({self.name}, {self.role})"
 
-class GenesisAgent:
-    """Genesis agent class for high-level AI operations"""
-    
-    def __init__(self):
-        self.api_endpoint = os.environ.get('AI_API_ENDPOINT', 'https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/')
-    
-    def analyze_codebase(self, context):
-        """Analyze codebase and suggest improvements"""
-        response = requests.post(
-            self.api_endpoint,
-            json={
-                'type': 'genesis_analyze',
-                'context': context
-            }
-        )
-        return response.json()
-    
-    def generate_code(self, requirements, context):
-        """Generate code based on requirements"""
-        response = requests.post(
-            self.api_endpoint,
-            json={
-                'type': 'genesis_generate',
-                'requirements': requirements,
-                'context': context
-            }
-        )
-        return response.json()
-    
-    def review_changes(self, changes, context):
-        """Review code changes"""
-        response = requests.post(
-            self.api_endpoint,
-            json={
-                'type': 'genesis_review',
-                'changes': changes,
-                'context': context
-            }
-        )
-        return response.json()
+# GenesisAgent functionality has been integrated into DynamicAgent
+# The VP of Engineering now serves as the genesis agent for the system

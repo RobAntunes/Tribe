@@ -3,17 +3,17 @@ import requests
 import asyncio
 import pytest
 from unittest.mock import patch, MagicMock
-from tribe.src.python.classes.base.dynamic import DynamicCrew, DynamicAgent, GenesisAgent
+from tribe.core.dynamic import DynamicCrew, DynamicAgent
 from tribe.src.python.classes.extended.crew_collab import CollaborationMode
 from tribe.src.python.tools.agents import AutonomousCrewManager
-from crewai import Task
+from crewai import Task, Process
 
 import pytest_asyncio
 
 @pytest_asyncio.fixture
 async def crew():
     manager = AutonomousCrewManager()
-    genesis_agent = manager.create_genesis_agent()
+    genesis_agent = await manager.create_genesis_agent()
     return DynamicCrew(
         config={
             'agents': [genesis_agent],

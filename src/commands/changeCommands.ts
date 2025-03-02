@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { DiffService } from '../services/diffService';
 import { ApplyChangesPayload, CreateChangeGroupPayload } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -82,6 +82,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					}
 				},
 				'APPLY_CHANGES',
+				ErrorCategory.SYSTEM,
 				'Apply code changes to workspace files',
 			),
 		),
@@ -144,6 +145,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return groupId;
 				},
 				'CREATE_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Create a change group from a set of changes',
 			),
 		),
@@ -192,6 +194,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return !!result;
 				},
 				'ACCEPT_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Accept all changes in a change group',
 			),
 		),
@@ -207,6 +210,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return true;
 				},
 				'REJECT_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Reject all changes in a change group',
 			),
 		),
@@ -282,6 +286,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return result;
 				},
 				'ACCEPT_FILE',
+				ErrorCategory.SYSTEM,
 				'Accept changes for a specific file',
 			),
 		),
@@ -327,6 +332,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return true;
 				},
 				'REJECT_FILE',
+				ErrorCategory.SYSTEM,
 				'Reject changes for a specific file',
 			),
 		),
@@ -365,6 +371,7 @@ export function registerChangeCommands(context: vscode.ExtensionContext): void {
 					return fileUpdated;
 				},
 				'MODIFY_CHANGE',
+				ErrorCategory.SYSTEM,
 				'Modify content of a pending change',
 			),
 		),
@@ -439,6 +446,7 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 					return explanation;
 				},
 				'REQUEST_EXPLANATION',
+				ErrorCategory.SYSTEM,
 				'Request explanation for a specific file change',
 			),
 		),
@@ -451,6 +459,7 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 					return storageService.getChangeGroups();
 				},
 				'GET_PENDING_CHANGES',
+				ErrorCategory.SYSTEM,
 				'Get all pending changes',
 			),
 		),
@@ -463,6 +472,7 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 					await diffService.showDiff(originalContent, newContent, title);
 				},
 				'VIEW_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff between original and new content',
 			),
 		),
@@ -477,6 +487,7 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 					return diffService.generateHunks(originalContent, modifiedContent);
 				},
 				'GENERATE_HUNKS',
+				ErrorCategory.SYSTEM,
 				'Generate hunks for a file change',
 			),
 		),

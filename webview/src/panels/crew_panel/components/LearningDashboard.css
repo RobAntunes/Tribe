@@ -30,10 +30,32 @@
 }
 
 .learning-system-toggle {
+  display: none; /* Hide the toggle in favor of settings cog */
+}
+
+.settings-cog-button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background-color: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--vscode-foreground);
+}
+
+.settings-cog-button:hover {
+  background-color: var(--vscode-button-background);
+  color: white;
+  border-color: var(--vscode-button-background);
+  transform: rotate(15deg);
+}
+
+.settings-cog-button:active {
+  transform: rotate(30deg);
 }
 
 .toggle-switch {
@@ -177,9 +199,6 @@
 }
 
 .metric-value {
-  position: absolute;
-  top: 0;
-  left: 0;
   width: 100%;
   height: 100%;
   display: flex;

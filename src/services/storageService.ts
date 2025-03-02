@@ -504,9 +504,11 @@ export class StorageService {
 					if (annotation.replies && annotation.replies.length > 0) {
 						// We need to check if any of the replies is our target parent
 						// Since replies can also be annotations (with nested replies)
-						const nestedAnnotations = annotation.replies.filter((r): r is Annotation => 'replies' in r);
+						// All replies are now compatible with Annotation structure
+						const nestedAnnotations = annotation.replies;
 
-						if (nestedAnnotations.length > 0 && findAndUpdate(nestedAnnotations)) {
+						// Cast to Annotation[] since we know the structure is compatible
+						if (nestedAnnotations.length > 0 && findAndUpdate(nestedAnnotations as unknown as Annotation[])) {
 							return true;
 						}
 					}

@@ -1,0 +1,133 @@
+@import '../common/styles.css';
+
+/* GetStarted component styles */
+.get-started {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-6);
+    width: 100%;
+    height: 100%;
+}
+
+.get-started-tab {
+    background-color: var(--vscode-editor-background);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    margin-top: var(--space-4);
+}
+
+.content {
+    max-width: 600px;
+    width: 100%;
+}
+
+.content h1 {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--font-size-xl);
+    color: var(--vscode-foreground);
+}
+
+.subtitle {
+    margin: 0 0 var(--space-6) 0;
+    font-size: var(--font-size-lg);
+    color: var(--vscode-descriptionForeground);
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    justify-content: center;
+    margin-bottom: var(--space-5);
+}
+
+.form label {
+    display: block;
+    margin-bottom: var(--space-2);
+    text-align: left;
+    font-weight: 500;
+    color: var(--vscode-foreground);
+}
+
+.form textarea {
+    min-height: 120px;
+    padding: var(--space-3);
+    margin-bottom: var(--space-4);
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: var(--radius-lg);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-base);
+    line-height: 1.5;
+    resize: none;
+    box-shadow: var(--shadow-sm);
+    transition: border-color var(--transition-fast) var(--transition-ease), 
+                box-shadow var(--transition-fast) var(--transition-ease);
+}
+
+.form textarea:focus {
+    outline: none;
+    border-color: var(--tribe-primary);
+    box-shadow: 0 0 0 2px rgba(var(--tribe-primary), 0.2);
+}
+
+.form .button {
+    width: 40%;
+    align-self: center;
+    margin-bottom: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    background-color: var(--tribe-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast) var(--transition-ease);
+}
+
+.form .button:hover {
+    background-color: var(--tribe-primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.form .button:disabled {
+    background-color: var(--tribe-primary-light);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.error-message {
+    color: var(--tribe-error);
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-sm);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    background-color: var(--tribe-error-muted);
+    border: 1px solid var(--tribe-error);
+}
+
+.info {
+    font-size: var(--font-size-sm);
+    color: var(--vscode-descriptionForeground);
+    text-align: center;
+    line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+    .get-started {
+        padding: var(--space-4);
+    }
+    
+    .content h1 {
+        font-size: var(--font-size-lg);
+    }
+    
+    .form .button {
+        width: 60%;
+    }
+}

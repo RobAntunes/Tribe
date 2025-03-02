@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { getVsCodeApi } from '../../../vscode';
 import { Agent } from '../types';
-import { Clipboard, Wrench, Brain, Layers } from 'lucide-react';
+import { Clipboard, Wrench, Brain, Layers, Bolt, Settings } from 'lucide-react';
 import './ConsolidatedDashboard.css';
 
 // Import the original components
 import { ProjectDashboard } from './ProjectDashboard';
 import { ToolsPanel } from './ToolsPanel';
 import { LearningDashboard } from './LearningDashboard';
+import { QuickActionsPanel } from './QuickActionsPanel';
 
 // Initialize VS Code API
 const vscode = getVsCodeApi();
@@ -36,6 +37,7 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
   onToggleLearningSystem
 }) => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+  const [activePopover, setActivePopover] = useState<string | null>(null);
   
   // Debug log when component mounts
   useEffect(() => {
@@ -47,6 +49,20 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
       learningSystemEnabled
     });
   }, []);
+  
+  // Close popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (activePopover) {
+        setActivePopover(null);
+      }
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [activePopover]);
   
   const renderTabContent = () => {
     switch (activeTab) {
@@ -107,11 +123,96 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
       default:
         return (
           <div className="dashboard-overview">
+            {/* Quick Actions Panel */}
+            <QuickActionsPanel
+              onCreateTask={(description) => {
+                vscode.postMessage({
+                  type: 'CREATE_TASK',
+                  payload: { description }
+                });
+              }}
+              onSendTeamMessage={(message) => {
+                vscode.postMessage({
+                  type: 'SEND_TEAM_MESSAGE',
+                  payload: { message }
+                });
+              }}
+              onAnalyzeProject={() => {
+                vscode.postMessage({
+                  type: 'ANALYZE_PROJECT'
+                });
+              }}
+              onCreateCheckpoint={(description) => {
+                vscode.postMessage({
+                  type: 'CREATE_CHECKPOINT',
+                  payload: { description }
+                });
+              }}
+              onGenerateCode={(description) => {
+                vscode.postMessage({
+                  type: 'GENERATE_CODE',
+                  payload: { description }
+                });
+              }}
+              onReviewCode={() => {
+                vscode.postMessage({
+                  type: 'REVIEW_CODE'
+                });
+              }}
+            />
+            
             <div className="overview-cards">
               <div className="overview-card project-card">
                 <div className="card-header">
-                  <Clipboard size={20} />
-                  <h4>Project System</h4>
+                  <div className="card-title">
+                    <Clipboard size={20} />
+                    <h4>Project System</h4>
+                  </div>
+                  <div className="settings-menu-container">
+                    <button 
+                      className="settings-cog-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePopover(activePopover === 'project' ? null : 'project');
+                      }}
+                      title="Project System Settings"
+                    >
+                      <Settings size={16} />
+                    </button>
+                    {activePopover === 'project' && (
+                      <div className="settings-popover" onClick={(e) => e.stopPropagation()}>
+                        <div className="popover-header">
+                          <h4>Project System</h4>
+                        </div>
+                        <div className="popover-content">
+                          <div className="popover-toggle">
+                            <label>
+                              <span>System {projectSystemEnabled ? 'Enabled' : 'Disabled'}</span>
+                              <button 
+                                className={`toggle-button ${projectSystemEnabled ? 'active' : ''}`}
+                                onClick={() => onToggleProjectSystem(!projectSystemEnabled)}
+                              >
+                                {projectSystemEnabled ? 'On' : 'Off'}
+                              </button>
+                            </label>
+                          </div>
+                          <div className="popover-actions">
+                            <button 
+                              className="action-button" 
+                              onClick={() => {
+                                vscode.postMessage({
+                                  type: 'CONFIGURE_PROJECT_SYSTEM'
+                                });
+                                setActivePopover(null);
+                              }}
+                            >
+                              Advanced Settings
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="card-metrics">
                   <div className="metric">
@@ -132,18 +233,70 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
                     {projectSystemEnabled ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <button 
-                  className="card-action-button"
-                  onClick={() => onToggleProjectSystem(!projectSystemEnabled)}
-                >
-                  {projectSystemEnabled ? 'Disable' : 'Enable'} Project System
-                </button>
               </div>
               
               <div className="overview-card tools-card">
                 <div className="card-header">
-                  <Wrench size={20} />
-                  <h4>Tools System</h4>
+                  <div className="card-title">
+                    <Wrench size={20} />
+                    <h4>Tools System</h4>
+                  </div>
+                  <div className="settings-menu-container">
+                    <button 
+                      className="settings-cog-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePopover(activePopover === 'tools' ? null : 'tools');
+                      }}
+                      title="Tools System Settings"
+                    >
+                      <Settings size={16} />
+                    </button>
+                    {activePopover === 'tools' && (
+                      <div className="settings-popover" onClick={(e) => e.stopPropagation()}>
+                        <div className="popover-header">
+                          <h4>Tools System</h4>
+                        </div>
+                        <div className="popover-content">
+                          <div className="popover-toggle">
+                            <label>
+                              <span>System {toolsSystemEnabled ? 'Enabled' : 'Disabled'}</span>
+                              <button 
+                                className={`toggle-button ${toolsSystemEnabled ? 'active' : ''}`}
+                                onClick={() => onToggleToolsSystem(!toolsSystemEnabled)}
+                              >
+                                {toolsSystemEnabled ? 'On' : 'Off'}
+                              </button>
+                            </label>
+                          </div>
+                          <div className="popover-actions">
+                            <button 
+                              className="action-button" 
+                              onClick={() => {
+                                vscode.postMessage({
+                                  type: 'CONFIGURE_TOOLS_SYSTEM'
+                                });
+                                setActivePopover(null);
+                              }}
+                            >
+                              Advanced Settings
+                            </button>
+                            <button 
+                              className="action-button" 
+                              onClick={() => {
+                                vscode.postMessage({
+                                  type: 'MANAGE_TOOLS'
+                                });
+                                setActivePopover(null);
+                              }}
+                            >
+                              Manage Tools
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="card-metrics">
                   <div className="metric">
@@ -164,18 +317,70 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
                     {toolsSystemEnabled ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <button 
-                  className="card-action-button"
-                  onClick={() => onToggleToolsSystem(!toolsSystemEnabled)}
-                >
-                  {toolsSystemEnabled ? 'Disable' : 'Enable'} Tools System
-                </button>
               </div>
               
               <div className="overview-card learning-card">
                 <div className="card-header">
-                  <Brain size={20} />
-                  <h4>Learning System</h4>
+                  <div className="card-title">
+                    <Brain size={20} />
+                    <h4>Learning System</h4>
+                  </div>
+                  <div className="settings-menu-container">
+                    <button 
+                      className="settings-cog-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePopover(activePopover === 'learning' ? null : 'learning');
+                      }}
+                      title="Learning System Settings"
+                    >
+                      <Settings size={16} />
+                    </button>
+                    {activePopover === 'learning' && (
+                      <div className="settings-popover" onClick={(e) => e.stopPropagation()}>
+                        <div className="popover-header">
+                          <h4>Learning System</h4>
+                        </div>
+                        <div className="popover-content">
+                          <div className="popover-toggle">
+                            <label>
+                              <span>System {learningSystemEnabled ? 'Enabled' : 'Disabled'}</span>
+                              <button 
+                                className={`toggle-button ${learningSystemEnabled ? 'active' : ''}`}
+                                onClick={() => onToggleLearningSystem(!learningSystemEnabled)}
+                              >
+                                {learningSystemEnabled ? 'On' : 'Off'}
+                              </button>
+                            </label>
+                          </div>
+                          <div className="popover-actions">
+                            <button 
+                              className="action-button" 
+                              onClick={() => {
+                                vscode.postMessage({
+                                  type: 'CONFIGURE_LEARNING_SYSTEM'
+                                });
+                                setActivePopover(null);
+                              }}
+                            >
+                              Advanced Settings
+                            </button>
+                            <button 
+                              className="action-button" 
+                              onClick={() => {
+                                vscode.postMessage({
+                                  type: 'VIEW_LEARNING_METRICS'
+                                });
+                                setActivePopover(null);
+                              }}
+                            >
+                              View Metrics
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="card-metrics">
                   <div className="metric">
@@ -196,12 +401,6 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
                     {learningSystemEnabled ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <button 
-                  className="card-action-button"
-                  onClick={() => onToggleLearningSystem(!learningSystemEnabled)}
-                >
-                  {learningSystemEnabled ? 'Disable' : 'Enable'} Learning System
-                </button>
               </div>
             </div>
             
@@ -226,31 +425,7 @@ export const ConsolidatedDashboard: React.FC<ConsolidatedDashboardProps> = ({
               )}
             </div>
             
-            <div className="overview-actions">
-              <button 
-                className={`system-toggle-button ${projectSystemEnabled ? 'active' : ''}`}
-                onClick={() => onToggleProjectSystem(!projectSystemEnabled)}
-              >
-                <Clipboard size={16} />
-                <span>{projectSystemEnabled ? 'Disable' : 'Enable'} Project System</span>
-              </button>
-              
-              <button 
-                className={`system-toggle-button ${toolsSystemEnabled ? 'active' : ''}`}
-                onClick={() => onToggleToolsSystem(!toolsSystemEnabled)}
-              >
-                <Wrench size={16} />
-                <span>{toolsSystemEnabled ? 'Disable' : 'Enable'} Tools System</span>
-              </button>
-              
-              <button 
-                className={`system-toggle-button ${learningSystemEnabled ? 'active' : ''}`}
-                onClick={() => onToggleLearningSystem(!learningSystemEnabled)}
-              >
-                <Brain size={16} />
-                <span>{learningSystemEnabled ? 'Disable' : 'Enable'} Learning System</span>
-              </button>
-            </div>
+{/* System toggle buttons removed in favor of settings cogs in each card */}
           </div>
         );
     }

@@ -345,26 +345,28 @@ export class DiffUtils {
 
 	/**
 	 * Show a diff between two files in the VS Code diff editor
+	 * @param path The file path or title for the diff
 	 * @param originalContent The original file content
 	 * @param modifiedContent The modified file content
-	 * @param title The title for the diff editor
 	 */
-	static async showDiff(originalContent: string, modifiedContent: string, title: string): Promise<void> {
+	static async showDiff(filePath: string, originalContent: string | undefined, modifiedContent: string): Promise<void> {
+		const title = `Diff for ${filePath}`;
 		// Create temporary files for the diff
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		if (!workspaceFolder) {
 			throw new Error('No workspace folder found');
 		}
 
-		const tempDir = path.join(workspaceFolder.uri.fsPath, '.tribe-temp');
+		const pathModule = require('path');
+		const tempDir = pathModule.join(workspaceFolder.uri.fsPath, '.tribe-temp');
 		if (!fs.existsSync(tempDir)) {
 			fs.mkdirSync(tempDir, { recursive: true });
 		}
 
-		const originalFile = path.join(tempDir, `original-${Date.now()}.txt`);
-		const modifiedFile = path.join(tempDir, `modified-${Date.now()}.txt`);
+		const originalFile = pathModule.join(tempDir, `original-${Date.now()}.txt`);
+		const modifiedFile = pathModule.join(tempDir, `modified-${Date.now()}.txt`);
 
-		fs.writeFileSync(originalFile, originalContent, 'utf8');
+		fs.writeFileSync(originalFile, originalContent || '', 'utf8');
 		fs.writeFileSync(modifiedFile, modifiedContent, 'utf8');
 
 		// Open diff view
@@ -484,6 +486,136 @@ export class DiffUtils {
 	}
 
 	/**
+	 * Create a snapshot of the current workspace state
+	 * @returns A record mapping file paths to file contents
+	 */
+	static createWorkspaceSnapshot(): Record<string, string> {
+		const snapshot: Record<string, string> = {};
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		
+		if (!workspaceFolder) {
+			return snapshot;
+		}
+		
+		// Recursively scan workspace folder for files
+		this.scanDirectory(workspaceFolder.uri.fsPath, '', snapshot);
+		
+		return snapshot;
+	}
+	
+	/**
+	 * Scan a directory recursively and add files to the snapshot
+	 * @param basePath The base path of the workspace
+	 * @param relativePath The relative path to scan
+	 * @param snapshot The snapshot object to populate
+	 */
+	private static scanDirectory(basePath: string, relativePath: string, snapshot: Record<string, string>): void {
+		const fullPath = path.join(basePath, relativePath);
+		const files = fs.readdirSync(fullPath);
+		
+		for (const file of files) {
+			const filePath = path.join(fullPath, file);
+			const fileRelativePath = path.join(relativePath, file);
+			const stat = fs.statSync(filePath);
+			
+			if (stat.isDirectory()) {
+				// Skip .git and node_modules directories
+				if (file !== '.git' && file !== 'node_modules') {
+					this.scanDirectory(basePath, fileRelativePath, snapshot);
+				}
+			} else {
+				// Add file content to snapshot
+				try {
+					const content = fs.readFileSync(filePath, 'utf8');
+					snapshot[fileRelativePath] = content;
+				} catch (error) {
+					console.error(`Error reading file ${filePath}: ${error}`);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Restore the workspace to a snapshot
+	 * @param snapshot The snapshot to restore
+	 */
+	static restoreWorkspaceSnapshot(snapshot: Record<string, string>): void {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+		
+		if (!workspaceFolder) {
+			return;
+		}
+		
+		// Apply the snapshot to the workspace
+		for (const filePath in snapshot) {
+			const fullPath = path.join(workspaceFolder.uri.fsPath, filePath);
+			const dirPath = path.dirname(fullPath);
+			
+			// Ensure directory exists
+			if (!fs.existsSync(dirPath)) {
+				fs.mkdirSync(dirPath, { recursive: true });
+			}
+			
+			// Write file content
+			fs.writeFileSync(fullPath, snapshot[filePath], 'utf8');
+		}
+	}
+	
+	/**
+	 * Compare two snapshots and generate diffs
+	 * @param originalSnapshot The original snapshot
+	 * @param newSnapshot The new snapshot
+	 * @returns An array of file changes
+	 */
+	static compareSnapshots(originalSnapshot: Record<string, string>, newSnapshot: Record<string, string>): FileChange[] {
+		const fileChanges: FileChange[] = [];
+		
+		// Find modified and deleted files
+		for (const filePath in originalSnapshot) {
+			if (filePath in newSnapshot) {
+				if (originalSnapshot[filePath] !== newSnapshot[filePath]) {
+					// File was modified
+					fileChanges.push(this.generateFileChange(filePath, originalSnapshot[filePath], newSnapshot[filePath]));
+				}
+			} else {
+				// File was deleted
+				fileChanges.push({
+					path: filePath,
+					content: '',
+					originalContent: originalSnapshot[filePath],
+					explanation: 'File deleted',
+				});
+			}
+		}
+		
+		// Find created files
+		for (const filePath in newSnapshot) {
+			if (!(filePath in originalSnapshot)) {
+				// File was created
+				fileChanges.push({
+					path: filePath,
+					content: newSnapshot[filePath],
+					explanation: 'File created',
+				});
+			}
+		}
+		
+		return fileChanges;
+	}
+	
+	/**
+	 * Regenerate hunks for a file change
+	 * @param fileChange The file change to regenerate hunks for
+	 * @returns The updated file change with regenerated hunks
+	 */
+	static regenerateHunks(fileChange: FileChange): FileChange {
+		if (fileChange.originalContent && fileChange.content) {
+			fileChange.hunks = this.generateHunks(fileChange.originalContent, fileChange.content);
+		}
+		return fileChange;
+	}
+	
+	/**
 	 * Extract potential feature names from title and description
 	 * @param title Change group title
 	 * @param description Change group description
@@ -541,4 +673,5 @@ export class DiffUtils {
 
 		return featureNames;
 	}
+
 }

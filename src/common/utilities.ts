@@ -4,8 +4,54 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { LogLevel, Uri, WorkspaceFolder } from 'vscode';
-import { Trace } from 'vscode-jsonrpc/node';
+import { Trace } from 'vscode-languageclient/node';
 import { getWorkspaceFolders } from './vscodeapi';
+
+export enum MessageType {
+    TEXT = 'TEXT',
+    COMMAND = 'COMMAND',
+    RESPONSE = 'RESPONSE',
+    STATUS = 'STATUS',
+    ERROR = 'ERROR',
+    STREAM = 'STREAM'
+}
+
+export interface Message {
+    id: string;
+    sender: string;
+    receiver: string;
+    content: string;
+    timestamp: string;
+    type: MessageType;
+    metadata?: any;
+    streamId?: string;
+    isPartial?: boolean;
+    isLastPart?: boolean;
+}
+
+export class EventEmitter<T = any> {
+    private listeners: Array<(data: T) => void> = [];
+    
+    public on(listener: (data: T) => void): () => void {
+        this.listeners.push(listener);
+        return () => this.off(listener);
+    }
+    
+    public off(listener: (data: T) => void): void {
+        const index = this.listeners.indexOf(listener);
+        if (index !== -1) {
+            this.listeners.splice(index, 1);
+        }
+    }
+    
+    public emit(data: T): void {
+        this.listeners.forEach(listener => listener(data));
+    }
+    
+    public clear(): void {
+        this.listeners = [];
+    }
+}
 
 function logLevelToTrace(logLevel: LogLevel): Trace {
     switch (logLevel) {

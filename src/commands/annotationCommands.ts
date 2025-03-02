@@ -3,7 +3,7 @@
 import * as vscode from 'vscode';
 import { StorageService } from '../services/storageService';
 import { CreateAnnotationPayload, AddReplyPayload } from '../models/types';
-import { errorWrapper } from '../errorHandling';
+import { errorWrapper, ErrorCategory } from '../errorHandling';
 import { COMMANDS, API_ENDPOINTS } from '../config';
 
 /**
@@ -57,6 +57,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'CREATE_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Create an annotation for a specific line in a file',
 			),
 		),
@@ -76,6 +77,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					return annotations;
 				},
 				'GET_ANNOTATIONS',
+				ErrorCategory.SYSTEM,
 				'Get all annotations or annotations for a specific file',
 			),
 		),
@@ -95,6 +97,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					return true;
 				},
 				'DELETE_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Delete an annotation',
 			),
 		),
@@ -133,6 +136,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'RESOLVE_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Mark an annotation as resolved',
 			),
 		),
@@ -167,6 +171,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					}
 				},
 				'ADD_REPLY',
+				ErrorCategory.SYSTEM,
 				'Add a reply to an annotation',
 			),
 		),
@@ -219,6 +224,7 @@ export function registerAnnotationCommands(context: vscode.ExtensionContext): vo
 					vscode.window.showInformationMessage(`Found ${annotations.length} annotations in this file`);
 				},
 				'SHOW_ANNOTATIONS_IN_FILE',
+				ErrorCategory.SYSTEM,
 				'Show annotations in the current file',
 			),
 		),

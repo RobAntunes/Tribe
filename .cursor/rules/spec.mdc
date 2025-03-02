@@ -1,0 +1,859 @@
+---
+description: the spec for the extension
+globs: 
+alwaysApply: true
+---
+Enhanced Genesis Agent Bootstrapping Instructions
+1. Genesis Agent Setup
+Genesis Agent: VP of Engineering role: "VP of Engineering" description: "Lead technical architect responsible for bootstrapping the entire agent ecosystem based on project requirements." backstory: "With decades of experience scaling technical teams and building complex systems, you excel at designing optimal team structures and creating effective workflows that maximize productivity and quality." goal: "Analyze project requirements and establish the ideal agent ecosystem with appropriate roles, tools, and workflows to ensure successful project delivery." allow_delegation: true allow_code_execution: true memory: true planning: true
+2. System Initialization Process
+Project Analysis
+Receive and parse the project description from the getting-started tab
+Perform comprehensive analysis to identify key requirements, technologies, and constraints
+Determine optimal team composition based on project complexity, timeline, and deliverables
+Team Design Creation
+Query the foundation model with the following prompt:
+Based on the provided project description: "{project_description}", please design an optimal team structure:  1. Specify the ideal team manager type (project manager, product manager, technical lead, etc.) with:  - Role definition and responsibilities  - Key strengths and expertise areas  - Communication and leadership style  - Decision-making approach  2. Define the necessary team members with the following for each:  - Specialized role and primary responsibilities  - Character name that reflects their function  - Detailed backstory that establishes expertise  - Precise measurable goals aligned with project objectives  - Distinctive personality attributes (communication style, problem-solving approach, collaboration preferences, etc.)  - Initial set of 3-5 prioritized tasks  3. Identify opportunities for parallel work execution, including:  - Which roles might benefit from multiple agent instances  - How parallel tasks should be coordinated  - Dependencies between workstreams  Optimize this team structure for maximum efficiency, quality, and successful project completion.
+3. Dynamic Object Creation System
+# Dynamic Agent Generation Tool class AgentCreationTool:  """Tool for dynamically creating new agents during runtime."""   def create_agent(self, role, name, backstory, goal, personality_attributes=None, allow_delegation=True,  allow_code_execution=True, memory=True, planning=True, initial_tasks=None):  """  Create a new agent with specified parameters.   Args:  role (str): The agent's role/function  name (str): Character-like name for the agent  backstory (str): Detailed background establishing expertise and context  goal (str): Clear, measurable objective for the agent  personality_attributes (dict): Distinctive traits affecting communication style,  problem-solving approach, collaboration preferences  allow_delegation (bool): Whether the agent can delegate tasks  allow_code_execution (bool): Whether the agent can execute code  memory (bool): Whether the agent has memory capabilities  planning (bool): Whether the agent can create plans  initial_tasks (list): List of initial tasks for the agent   Returns:  Agent: The newly created agent instance  """  # Implementation details for integrating with CrewAI  pass  # Dynamic Team/Sub-group Creation Tool class TeamCreationTool:  """Tool for creating specialized sub-teams within the agent ecosystem."""   def create_team(self, name, description, purpose, members=None, manager=None, workflows=None):  """  Create a new team or sub-group.   Args:  name (str): Identifying name for the team  description (str): Team's function and scope  purpose (str): Clear objective for the team  members (list): Initial agents to include  manager (Agent): Team lead or manager  workflows (list): Predefined workflows for the team   Returns:  Team: The newly created team instance  """  pass  # Dynamic Tool Creation Tool class ToolCreationTool:  """Tool for generating new capabilities for agents."""   def create_tool(self, name, description, function_definition, required_parameters,  return_type, usage_examples, integration_point="agent"):  """  Create a new tool that agents can use.   Args:  name (str): Name of the tool  description (str): What the tool does  function_definition (str): Code/definition of the tool's functionality  required_parameters (list): Inputs needed for the tool  return_type (str): What the tool returns  usage_examples (list): Examples showing how to use the tool  integration_point (str): Where the tool should be available   Returns:  Tool: The newly created tool instance  """  pass  # Dynamic Workflow Creation Tool class WorkflowCreationTool:  """Tool for defining sequences of operations across agents."""   def create_workflow(self, name, description, steps, trigger_conditions=None,  success_criteria=None, failure_handling=None, agents_involved=None):  """  Create a new workflow for coordinating multi-agent activities.   Args:  name (str): Identifier for the workflow  description (str): What the workflow accomplishes  steps (list): Ordered sequence of actions/tasks  trigger_conditions (dict): When the workflow should start  success_criteria (dict): How to determine completion  failure_handling (dict): Steps to take if issues arise  agents_involved (list): Which agents participate   Returns:  Workflow: The newly created workflow  """  pass  # Dynamic Task Creation Tool class TaskCreationTool:  """Tool for generating new tasks during runtime."""   def create_task(self, description, assigned_to=None, dependencies=None,  estimated_effort=None, priority=None, evaluation_criteria=None):  """  Create a new task for assignment.   Args:  description (str): What needs to be done  assigned_to (Agent): Agent responsible for completion  dependencies (list): Tasks that must be completed first  estimated_effort (str): Expected time/resources required  priority (int): Importance ranking  evaluation_criteria (dict): How to judge successful completion   Returns:  Task: The newly created task  """  pass  # Dynamic Prompt Creation Tool class PromptCreationTool:  """Tool for generating optimized prompts for foundation model interactions."""   def create_optimized_prompt(self, purpose, context, desired_output_format=None,  constraints=None, additional_instructions=None):  """  Query the foundation model to create an optimized prompt.   Args:  purpose (str): Goal of the prompt  context (str): Relevant background information  desired_output_format (str): Structure for the response  constraints (list): Limitations or requirements  additional_instructions (str): Any special considerations   Returns:  str: Optimized prompt for the foundation model  """  # Implementation uses foundation model through lambda URL  pass
+4. Genesis Agent Initialization Code
+# Create the Genesis VP of Engineering Agent genesis_agent = Agent(  role="VP of Engineering",  backstory="Seasoned technical leader with expertise in team building and system architecture. Responsible for establishing the optimal agent ecosystem for successful project delivery.",  goal="Analyze project requirements and create the ideal agent structure with appropriate roles, tools, and workflows.",  verbose=True,  allow_delegation=True,  allow_code_execution=True,  memory=True,  planning=True,  tools=[  AgentCreationTool(),  TeamCreationTool(),  ToolCreationTool(),  WorkflowCreationTool(),  TaskCreationTool(),  PromptCreationTool()  ] )  # Initial task for genesis agent initial_task = Task(  description="Analyze project description and create optimal team structure with roles, responsibilities, and initial tasks.",  agent=genesis_agent,  expected_output="Complete team structure specification with all necessary agents, tools, workflows, and initial tasks defined." )  # Execute genesis process result = initial_task.execute()
+5. Foundation Model Interaction Framework
+class FoundationModelInterface:  """Interface for standardized interactions with the foundation model."""   def query_model(self, prompt, temperature=0.7, max_tokens=None, system_message=None):  """  Send a prompt to the foundation model via lambda URL.   Args:  prompt (str): The query/instruction for the model  temperature (float): Creativity parameter (0.0-1.0)  max_tokens (int): Maximum response length  system_message (str): System instruction context   Returns:  str: Model response  """  # Implementation details for foundation model API call  pass   def get_agent_specification(self, project_description, role_type):  """  Generate detailed agent specifications based on project needs.   Args:  project_description (str): Overall project context  role_type (str): Type of agent needed   Returns:  dict: Complete agent specification  """  prompt = f"""  Based on the project: "{project_description}", create a comprehensive specification for a {role_type} agent:   1. Define its precise role and responsibilities  2. Create a compelling backstory establishing relevant expertise  3. Set clear, measurable goals aligned with project objectives  4. Establish distinctive personality attributes (communication style, problem-solving approach, etc.)  5. Define 3-5 initial high-priority tasks  6. Specify required tools and capabilities  7. Identify collaboration patterns with other team roles   Optimize this agent design for maximum effectiveness in achieving project goals.  """  return self.query_model(prompt)   def generate_optimized_prompt(self, context, purpose):  """  Create an optimized prompt for a specific purpose.   Args:  context (str): Relevant situation details  purpose (str): Goal of the prompt   Returns:  str: Optimized prompt structure  """  meta_prompt = f"""  Design an optimized prompt for the following purpose: "{purpose}"   Context information:  {context}   Your prompt should:  1. Provide clear, specific instructions  2. Include relevant context without redundancy  3. Structure information in a logical sequence  4. Specify desired output format clearly  5. Include constraints and requirements  6. Anticipate potential misunderstandings   Return only the optimized prompt text without additional explanations.  """  return self.query_model(meta_prompt)
+6. Learning System
+class LearningSystem:
+    """Framework for continuous improvement of agent performance and outputs."""
+    
+    def __init__(self, knowledge_repository=None):
+        self.knowledge_repository = knowledge_repository or {}
+        self.learning_patterns = {}
+        self.improvement_metrics = {}
+    
+    def capture_experience(self, agent_id, context, decision, outcome, metadata=None):
+        """
+        Record an agent's experience for future learning.
+        
+        Args:
+            agent_id (str): Identifier for the agent
+            context (dict): Situation details when decision was made
+            decision (str): What the agent decided to do
+            outcome (dict): Results of the decision
+            metadata (dict): Additional relevant information
+            
+        Returns:
+            str: Experience record identifier
+        """
+        experience_id = f"exp_{agent_id}_{int(time.time())}"
+        
+        experience_record = {
+            "agent_id": agent_id,
+            "timestamp": time.time(),
+            "context": context,
+            "decision": decision,
+            "outcome": outcome,
+            "metadata": metadata or {},
+            "lessons_extracted": False
+        }
+        
+        # Store in appropriate repository
+        if agent_id not in self.knowledge_repository:
+            self.knowledge_repository[agent_id] = []
+        
+        self.knowledge_repository[agent_id].append(experience_record)
+        return experience_id
+    
+    def extract_patterns(self, agent_id=None, topic=None, outcome_type=None):
+        """
+        Analyze experiences to identify recurring patterns.
+        
+        Args:
+            agent_id (str, optional): Filter by specific agent
+            topic (str, optional): Filter by subject area
+            outcome_type (str, optional): Filter by result category
+            
+        Returns:
+            dict: Identified patterns with supporting evidence
+        """
+        # Implementation for pattern recognition
+        pass
+    
+    def apply_learning(self, agent, context, available_experiences=None):
+        """
+        Leverage past experiences to improve current decisions.
+        
+        Args:
+            agent (Agent): Agent making a decision
+            context (dict): Current situation details
+            available_experiences (list, optional): Specific experiences to consider
+            
+        Returns:
+            dict: Recommendations based on past learning
+        """
+        # Implementation for experience application
+        pass
+    
+    def update_agent_model(self, agent, new_insights):
+        """
+        Evolve an agent's decision-making based on accumulated learning.
+        
+        Args:
+            agent (Agent): Agent to update
+            new_insights (dict): Learned patterns to incorporate
+            
+        Returns:
+            bool: Success indicator
+        """
+        # Implementation for agent evolution
+        pass
+
+ Feedback Loop System
+class FeedbackSystem:
+    """Framework for systematic evaluation and improvement of agent outputs."""
+    
+    def __init__(self, evaluation_criteria=None):
+        self.feedback_history = {}
+        self.evaluation_criteria = evaluation_criteria or {}
+        self.improvement_tracking = {}
+    
+    def create_evaluation_criteria(self, output_type, criteria_definitions):
+        """
+        Establish standards for evaluating a specific type of output.
+        
+        Args:
+            output_type (str): Category of work being evaluated
+            criteria_definitions (dict): Detailed standards with scoring guidelines
+            
+        Returns:
+            dict: Complete evaluation framework
+        """
+        # Implementation for criteria creation
+        pass
+    
+    def evaluate_output(self, output, output_type, evaluator_agent=None, custom_criteria=None):
+        """
+        Assess the quality of agent-produced work.
+        
+        Args:
+            output (any): The work to be evaluated
+            output_type (str): Category of the output
+            evaluator_agent (Agent, optional): Specific agent to perform evaluation
+            custom_criteria (dict, optional): One-time evaluation standards
+            
+        Returns:
+            dict: Detailed evaluation with scores and improvement suggestions
+        """
+        criteria = custom_criteria or self.evaluation_criteria.get(output_type, {})
+        
+        if not criteria:
+            raise ValueError(f"No evaluation criteria defined for output type: {output_type}")
+        
+        if evaluator_agent:
+            # Delegate evaluation to specified agent
+            evaluation_prompt = self._generate_evaluation_prompt(output, criteria)
+            evaluation = evaluator_agent.execute_task(evaluation_prompt)
+        else:
+            # Use foundation model for evaluation
+            foundation_interface = FoundationModelInterface()
+            evaluation_prompt = self._generate_evaluation_prompt(output, criteria)
+            evaluation = foundation_interface.query_model(evaluation_prompt)
+        
+        # Parse and structure the evaluation results
+        structured_evaluation = self._parse_evaluation(evaluation)
+        
+        # Record the feedback for future learning
+        self._record_feedback(output, output_type, structured_evaluation)
+        
+        return structured_evaluation
+    
+    def _generate_evaluation_prompt(self, output, criteria):
+        """Create a prompt for evaluating work against specific criteria."""
+        prompt = f"""
+        Evaluate the following output according to these criteria:
+        
+        OUTPUT:
+        {output}
+        
+        EVALUATION CRITERIA:
+        {json.dumps(criteria, indent=2)}
+        
+        For each criterion:
+        1. Assign a score (1-10)
+        2. Provide specific evidence supporting the score
+        3. Offer concrete suggestions for improvement
+        
+        Include an overall assessment and prioritized improvement recommendations.
+        """
+        return prompt
+    
+    def _parse_evaluation(self, evaluation_text):
+        """Convert evaluation text into structured format."""
+        # Implementation for parsing evaluation
+        pass
+    
+    def _record_feedback(self, output, output_type, evaluation):
+        """Store feedback for learning purposes."""
+        feedback_id = f"feedback_{int(time.time())}"
+        
+        feedback_record = {
+            "timestamp": time.time(),
+            "output_type": output_type,
+            "output_hash": hash(str(output)),
+            "evaluation": evaluation,
+            "applied": False
+        }
+        
+        self.feedback_history[feedback_id] = feedback_record
+        return feedback_id
+    
+    def apply_feedback(self, agent, output_type, feedback):
+        """
+        Incorporate feedback to improve future performance.
+        
+        Args:
+            agent (Agent): Agent receiving feedback
+            output_type (str): Category of work
+            feedback (dict): Evaluation and suggestions
+            
+        Returns:
+            dict: Implementation plan for improvements
+        """
+        # Implementation for feedback application
+        pass
+    
+    def track_improvement(self, agent_id, output_type, initial_quality, current_quality):
+        """
+        Monitor progress in output quality over time.
+        
+        Args:
+            agent_id (str): Agent identifier
+            output_type (str): Category of work
+            initial_quality (float): Baseline performance measure
+            current_quality (float): Current performance measure
+            
+        Returns:
+            dict: Improvement analytics
+        """
+        # Implementation for improvement tracking
+        pass
+
+9. Reflection System
+class ReflectionSystem:
+    """Framework for meta-cognitive analysis of agent performance and outputs."""
+    
+    def __init__(self):
+        self.reflection_records = {}
+        self.insight_repository = {}
+        self.implementation_tracking = {}
+    
+    def schedule_reflection(self, agents, reflection_focus, reflection_agent=None):
+        """
+        Set up a structured reflection session.
+        
+        Args:
+            agents (list): Agents whose work will be examined
+            reflection_focus (str): Specific aspect to analyze
+            reflection_agent (Agent, optional): Agent to perform reflection
+            
+        Returns:
+            str: Reflection session identifier
+        """
+        reflection_id = f"reflect_{int(time.time())}"
+        
+        # If no dedicated reflection agent provided, select appropriate one
+        if not reflection_agent:
+            # Logic to select appropriate reflector based on focus
+            pass
+        
+        reflection_session = {
+            "id": reflection_id,
+            "agents": [a.id for a in agents],
+            "focus": reflection_focus,
+            "reflector": reflection_agent.id if reflection_agent else None,
+            "status": "scheduled",
+            "timestamp": time.time()
+        }
+        
+        self.reflection_records[reflection_id] = reflection_session
+        return reflection_id
+    
+    def perform_reflection(self, reflection_id, context_data=None):
+        """
+        Execute a reflection analysis session.
+        
+        Args:
+            reflection_id (str): Session identifier
+            context_data (dict, optional): Additional information for analysis
+            
+        Returns:
+            dict: Reflection results with insights and recommendations
+        """
+        session = self.reflection_records.get(reflection_id)
+        if not session:
+            raise ValueError(f"No reflection session found with id: {reflection_id}")
+        
+        # Collect relevant outputs and processes for analysis
+        analysis_materials = self._gather_reflection_materials(session, context_data)
+        
+        # Generate reflection prompt based on focus
+        reflection_prompt = self._create_reflection_prompt(session["focus"], analysis_materials)
+        
+        # Execute reflection through appropriate agent or foundation model
+        if session["reflector"]:
+            # Find the reflection agent
+            reflector_agent = self._get_agent_by_id(session["reflector"])
+            reflection_results = reflector_agent.execute_task(reflection_prompt)
+        else:
+            # Use foundation model
+            foundation_interface = FoundationModelInterface()
+            reflection_results = foundation_interface.query_model(reflection_prompt)
+        
+        # Parse and structure the reflection results
+        structured_reflection = self._parse_reflection(reflection_results)
+        
+        # Update session record
+        session["status"] = "completed"
+        session["completed_at"] = time.time()
+        session["results"] = structured_reflection
+        
+        # Store any extracted insights
+        self._store_insights(structured_reflection)
+        
+        return structured_reflection
+    
+    def _gather_reflection_materials(self, session, context_data):
+        """Collect relevant outputs, processes, and context for reflection."""
+        # Implementation for gathering materials
+        pass
+    
+    def _create_reflection_prompt(self, focus, materials):
+        """Generate appropriate prompt based on reflection focus."""
+        prompt_templates = {
+            "output_quality": """
+            Perform a comprehensive analysis of the outputs produced by the specified agents:
+            
+            OUTPUTS:
+            {outputs}
+            
+            OBJECTIVES:
+            {objectives}
+            
+            Analyze for:
+            1. Alignment with stated objectives
+            2. Internal consistency and coherence
+            3. Completeness and comprehensiveness
+            4. Innovation and creative problem-solving
+            5. Technical accuracy and precision
+            6. Clarity and communicative effectiveness
+            
+            For each finding:
+            - Provide specific evidence
+            - Explain potential causes
+            - Suggest concrete improvements
+            - Prioritize recommendations by impact
+            
+            Conclude with meta-level observations about patterns across outputs.
+            """,
+            
+            "process_efficiency": """
+            Examine the processes and workflows used by the specified agents:
+            
+            PROCESS LOGS:
+            {process_logs}
+            
+            INTERACTION PATTERNS:
+            {interaction_patterns}
+            
+            Analyze for:
+            1. Decision-making efficiency
+            2. Resource utilization
+            3. Collaboration effectiveness
+            4. Unnecessary steps or redundancies
+            5. Bottlenecks and constraints
+            6. Adaptation to changing requirements
+            
+            For each finding:
+            - Quantify the impact when possible
+            - Identify root causes
+            - Propose specific process improvements
+            - Suggest implementation approaches
+            
+            Conclude with systemic recommendations for overall workflow enhancement.
+            """,
+            
+            # Additional focus types...
+        }
+        
+        template = prompt_templates.get(focus, "")
+        if not template:
+            raise ValueError(f"No reflection template defined for focus: {focus}")
+        
+        # Fill template with materials
+        filled_prompt = template.format(**materials)
+        return filled_prompt
+    
+    def _parse_reflection(self, reflection_text):
+        """Convert reflection text into structured format."""
+        # Implementation for parsing reflection
+        pass
+    
+    def _store_insights(self, structured_reflection):
+        """Extract and store reusable insights from reflection."""
+        # Implementation for insight storage
+        pass
+    
+    def implement_recommendations(self, reflection_id, target_agents=None, priority_threshold=None):
+        """
+        Apply insights from reflection to improve agents.
+        
+        Args:
+            reflection_id (str): Session identifier
+            target_agents (list, optional): Specific agents to update
+            priority_threshold (float, optional): Minimum priority level for implementation
+            
+        Returns:
+            dict: Implementation results and status
+        """
+        session = self.reflection_records.get(reflection_id)
+        if not session or session["status"] != "completed":
+            raise ValueError(f"No completed reflection found with id: {reflection_id}")
+        
+        recommendations = session["results"].get("recommendations", [])
+        
+        # Filter by priority if needed
+        if priority_threshold is not None:
+            recommendations = [r for r in recommendations if r.get("priority", 0) >= priority_threshold]
+        
+        # Determine target agents
+        if target_agents is None:
+            target_agents = [self._get_agent_by_id(agent_id) for agent_id in session["agents"]]
+        
+        implementation_results = {
+            "reflection_id": reflection_id,
+            "timestamp": time.time(),
+            "target_agents": [a.id for a in target_agents],
+            "recommendations": [],
+            "status": "in_progress"
+        }
+        
+        # Implement each recommendation
+        for rec in recommendations:
+            result = self._implement_recommendation(rec, target_agents)
+            implementation_results["recommendations"].append({
+                "recommendation": rec,
+                "implementation_result": result
+            })
+        
+        implementation_results["status"] = "completed"
+        
+        # Store implementation record
+        implementation_id = f"impl_{reflection_id}_{int(time.time())}"
+        self.implementation_tracking[implementation_id] = implementation_results
+        
+        return implementation_results
+    
+    def _implement_recommendation(self, recommendation, target_agents):
+        """Apply a specific recommendation to the targeted agents."""
+        # Implementation for recommendation application
+        pass
+    
+    def _get_agent_by_id(self, agent_id):
+        """Retrieve agent instance by ID."""
+        # Implementation for agent retrieval
+        pass
+
+10. Integration of Learning, Feedback, and Reflection with Genesis Agent
+# Enhanced Genesis Agent with learning capabilities
+genesis_agent = Agent(
+    role="VP of Engineering",
+    backstory="Seasoned technical leader with expertise in team building and system architecture. Responsible for establishing the optimal agent ecosystem for successful project delivery.",
+    goal="Analyze project requirements and create the ideal agent structure with appropriate roles, tools, and workflows.",
+    verbose=True,
+    allow_delegation=True,
+    allow_code_execution=True,
+    memory=True,
+    planning=True,
+    tools=[
+        AgentCreationTool(),
+        TeamCreationTool(),
+        ToolCreationTool(),
+        WorkflowCreationTool(),
+        TaskCreationTool(),
+        PromptCreationTool(),
+        # New tools for learning and improvement
+        LearningSystem(),
+        FeedbackSystem(),
+        ReflectionSystem()
+    ]
+)
+
+# Add reflection capabilities to agent creation
+class EnhancedAgentCreationTool(AgentCreationTool):
+    """Extended tool for creating agents with built-in improvement mechanisms."""
+    
+    def create_agent_with_improvement_cycle(self, role, name, backstory, goal, 
+                                          personality_attributes=None, 
+                                          reflection_schedule=None,
+                                          feedback_criteria=None,
+                                          learning_focus=None,
+                                          **kwargs):
+        """
+        Create an agent with integrated improvement capabilities.
+        
+        Additional Args:
+            reflection_schedule (dict): When/how often to trigger reflection
+            feedback_criteria (dict): Standards for evaluating outputs
+            learning_focus (list): Priority areas for improvement
+        """
+        # Create the base agent
+        agent = self.create_agent(role, name, backstory, goal, 
+                                personality_attributes, **kwargs)
+        
+        # Setup improvement systems
+        if reflection_schedule:
+            self._configure_reflection(agent, reflection_schedule)
+        
+        if feedback_criteria:
+            self._configure_feedback(agent, feedback_criteria)
+            
+        if learning_focus:
+            self._configure_learning(agent, learning_focus)
+            
+        return agent
+        
+    def _configure_reflection(self, agent, schedule):
+        """Setup automated reflection for the agent."""
+        # Implementation for reflection configuration
+        pass
+        
+    def _configure_feedback(self, agent, criteria):
+        """Setup feedback mechanisms for the agent."""
+        # Implementation for feedback configuration
+        pass
+        
+    def _configure_learning(self, agent, focus):
+        """Setup learning priorities for the agent."""
+        # Implementation for learning configuration
+        pass
+
+11. Cross-Agent Enhancement Workflow
+class EnhancementWorkflow:
+    """Coordinated process for continuous improvement across agents."""
+    
+    def __init__(self, agent_ecosystem, learning_system, feedback_system, reflection_system):
+        self.agent_ecosystem = agent_ecosystem
+        self.learning_system = learning_system
+        self.feedback_system = feedback_system
+        self.reflection_system = reflection_system
+        self.enhancement_cycles = {}
+    
+    def create_enhancement_cycle(self, name, target_agents, review_agents=None, 
+                               cycle_frequency=None, enhancement_focus=None):
+        """
+        Establish a systematic improvement process.
+        
+        Args:
+            name (str): Identifier for the cycle
+            target_agents (list): Agents to be enhanced
+            review_agents (list, optional): Agents who will evaluate and suggest improvements
+            cycle_frequency (dict, optional): When to trigger review cycles
+            enhancement_focus (list, optional): Specific areas to improve
+            
+        Returns:
+            str: Enhancement cycle identifier
+        """
+        cycle_id = f"enhance_{name}_{int(time.time())}"
+        
+        # If no reviewers specified, select appropriate ones based on expertise
+        if not review_agents:
+            review_agents = self._select_appropriate_reviewers(target_agents, enhancement_focus)
+        
+        cycle = {
+            "id": cycle_id,
+            "name": name,
+            "target_agents": [a.id for a in target_agents],
+            "review_agents": [a.id for a in review_agents],
+            "frequency": cycle_frequency or {"trigger": "output_count", "value": 5},
+            "focus": enhancement_focus or ["output_quality", "efficiency", "innovation"],
+            "status": "active",
+            "cycles_completed": 0,
+            "last_run": None
+        }
+        
+        self.enhancement_cycles[cycle_id] = cycle
+        return cycle_id
+    
+    def _select_appropriate_reviewers(self, target_agents, focus):
+        """Identify suitable agents to review others based on expertise."""
+        # Implementation for reviewer selection
+        pass
+    
+    def execute_enhancement_cycle(self, cycle_id, trigger_reason=None):
+        """
+        Run a complete improvement cycle.
+        
+        Args:
+            cycle_id (str): Enhancement cycle identifier
+            trigger_reason (str, optional): What initiated the cycle
+            
+        Returns:
+            dict: Results and improvements made
+        """
+        cycle = self.enhancement_cycles.get(cycle_id)
+        if not cycle:
+            raise ValueError(f"No enhancement cycle found with id: {cycle_id}")
+        
+        # 1. Collect relevant outputs and processes
+        materials = self._gather_enhancement_materials(cycle)
+        
+        # 2. For each reviewer agent, perform analysis
+        reviews = []
+        for reviewer_id in cycle["review_agents"]:
+            reviewer = self._get_agent_by_id(reviewer_id)
+            
+            # Generate appropriate review prompt based on focus areas
+            review_prompt = self._create_review_prompt(cycle["focus"], materials)
+            
+            # Execute review
+            review_results = reviewer.execute_task(review_prompt)
+            structured_review = self._parse_review(review_results)
+            
+            reviews.append({
+                "reviewer_id": reviewer_id,
+                "timestamp": time.time(),
+                "results": structured_review
+            })
+        
+        # 3. Consolidate reviews and generate unified improvement plan
+        improvement_plan = self._generate_improvement_plan(reviews)
+        
+        # 4. Apply improvements to target agents
+        implementation_results = self._implement_improvements(cycle["target_agents"], improvement_plan)
+        
+        # 5. Record cycle completion
+        cycle_results = {
+            "cycle_id": cycle_id,
+            "run_number": cycle["cycles_completed"] + 1,
+            "timestamp": time.time(),
+            "trigger": trigger_reason,
+            "reviews": reviews,
+            "improvement_plan": improvement_plan,
+            "implementation_results": implementation_results
+        }
+        
+        # Update cycle record
+        cycle["cycles_completed"] += 1
+        cycle["last_run"] = time.time()
+        
+        return cycle_results
+    
+    def _gather_enhancement_materials(self, cycle):
+        """Collect outputs, processes, and context for enhancement review."""
+        # Implementation for gathering materials
+        pass
+    
+    def _create_review_prompt(self, focus_areas, materials):
+        """Generate appropriate prompt for reviewer based on focus areas."""
+        prompt_components = []
+        
+        for focus in focus_areas:
+            if focus == "output_quality":
+                prompt_components.append("""
+                Review the outputs produced by the target agents:
+                
+                OUTPUTS:
+                {outputs}
+                
+                Analyze for:
+                1. Quality and correctness
+                2. Completeness and thoroughness
+                3. Clarity and effectiveness
+                
+                For each finding, suggest specific improvements.
+                """)
+            
+            elif focus == "efficiency":
+                prompt_components.append("""
+                Examine the processes used by the target agents:
+                
+                PROCESS LOGS:
+                {process_logs}
+                
+                Analyze for:
+                1. Unnecessary steps or redundancies
+                2. Decision bottlenecks
+                3. Resource utilization
+                
+                Suggest concrete process improvements.
+                """)
+            
+            elif focus == "innovation":
+                prompt_components.append("""
+                Consider the approaches taken by the target agents:
+                
+                SOLUTION APPROACHES:
+                {solution_approaches}
+                
+                Analyze for:
+                1. Creative problem-solving
+                2. Novel techniques or methods
+                3. Adaptability to new challenges
+                
+                Suggest ways to enhance innovative thinking.
+                """)
+        
+        # Combine component prompts
+        combined_prompt = "\n\n".join(prompt_components)
+        
+        # Add general instructions
+        review_prompt = f"""
+        Perform a comprehensive review of the target agents' work and processes.
+        
+        {combined_prompt}
+        
+        For each suggestion:
+        - Provide clear rationale
+        - Offer specific implementation guidance
+        - Indicate expected impact
+        - Specify how success should be measured
+        
+        Prioritize recommendations by potential impact.
+        """
+        
+        # Fill template with materials
+        filled_prompt = review_prompt.format(**materials)
+        return filled_prompt
+    
+    def _parse_review(self, review_text):
+        """Convert review text into structured format."""
+        # Implementation for parsing review
+        pass
+    
+    def _generate_improvement_plan(self, reviews):
+        """Consolidate multiple reviews into a unified improvement plan."""
+        # Implementation for improvement plan generation
+        pass
+    
+    def _implement_improvements(self, target_agent_ids, improvement_plan):
+        """Apply improvement plan to target agents."""
+        # Implementation for improvement application
+        pass
+    
+    def _get_agent_by_id(self, agent_id):
+        """Retrieve agent instance by ID."""
+        # Implementation for agent retrieval
+        pass
+
+12. Agent Enhancement Prompt Templates
+# Reflection Prompt Template for Code Review
+Carefully examine the following code produced by [agent_name]:
+
+
+[code_content]
+
+Please provide an in-depth analysis focusing on:
+
+1. Code Quality
+   - Readability and clarity
+   - Appropriate use of data structures
+   - Error handling and edge cases
+   - Performance optimization opportunities
+
+2. Architecture
+   - Component organization
+   - Separation of concerns
+   - Scalability considerations
+
+3. Best Practices
+   - Following language-specific conventions
+   - Security considerations
+   - Maintainability factors
+
+For each observation:
+- Provide specific line references
+- Explain why it's an issue or opportunity
+- Include concrete code examples showing improved approaches
+- Prioritize suggestions by impact (critical, high, medium, low)
+
+Conclude with 3-5 most important recommendations that would significantly improve the quality, performance, or maintainability of this code.
+
+# Feedback Prompt Template for Documentation Review
+Analyze the following documentation produced by [agent_name]:
+
+[documentation_content]
+
+Evaluate based on these criteria:
+
+1. Completeness (1-10)
+   - Covers all necessary information
+   - Appropriate level of detail
+   - No critical omissions
+
+2. Clarity (1-10)
+   - Clear explanations
+   - Logical structure
+   - Effective use of examples
+
+3. Accuracy (1-10)
+   - Technical correctness
+   - Consistency with actual functionality
+   - Up-to-date information
+
+4. Usability (1-10)
+   - Easily navigable
+   - Appropriate for target audience
+   - Actionable information
+
+For each criterion:
+- Provide your numerical rating
+- Explain your reasoning with specific examples
+- Offer 2-3 concrete suggestions for improvement
+
+Conclude with an overall assessment and prioritized recommendations for enhancing this documentation.
+
+# Learning Application Prompt
+Based on our analysis of past similar tasks, here are patterns we've identified that could improve your approach:
+
+1. [Pattern description]
+   - Observed in [number] previous similar situations
+   - Led to [specific outcomes]
+   - Successful strategies included: [strategy details]
+
+2. [Pattern description]
+   - Observed in [number] previous similar situations
+   - Led to [specific outcomes]
+   - Successful strategies included: [strategy details]
+
+Consider how these patterns might apply to your current task. Specifically:
+
+- The approach used in [similar_task_reference] achieved [outcome] by [strategy]
+- Teams encountered challenges with [specific_aspect] which they overcame by [solution]
+
+How might you incorporate these lessons into your current approach?
+
+This enhanced framework ensures a continuous improvement cycle where:
+Agents actively learn from their own experiences and outcomes
+Specialized reviewer agents evaluate outputs and suggest improvements
+The system supports structured reflection on both outputs and processes
+Feedback is systematically collected, analyzed, and implemented
+Cross-agent enhancement ensures knowledge sharing and system-wide improvement
+The integration of these capabilities addresses the original chicken-and-egg problem by making all improvement mechanisms explicitly available from genesis, while enabling dynamic evolution of the system through continuous learning and reflection.
+
+Extended System Capabilities
+Dynamic Role Adaptation
+Enable agents to evolve their roles based on emerging project needs
+Allow for skill specialization as project progresses
+Support role transition when project phases change
+Knowledge Management System
+Centralized repository for project artifacts and decisions
+Contextual retrieval of relevant information
+Progressive knowledge building throughout project lifecycle
+Performance Monitoring
+Track agent effectiveness against goals
+Identify bottlenecks or coordination issues
+Recommend system optimization adjustments
+Resource Allocation
+Dynamically adjust agent availability based on workload
+Scale agent instances for parallel processing
+Balance resources across competing priorities
+UI
+Create beautiful, native feeling UI components to cover the entire feature set.

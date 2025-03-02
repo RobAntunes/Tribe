@@ -3,8 +3,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { errorWrapper, ErrorSeverity } from './errorHandling';
-import { StorageService } from './storage';
+import { errorWrapper, ErrorSeverity, ErrorCategory } from './errorHandling';
+import { StorageService, FileChange, ChangeGroup } from './storage';
 import { DiffUtils } from './diffUtils';
 
 /**
@@ -89,6 +89,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					}
 				},
 				'APPLY_CHANGES',
+				ErrorCategory.SYSTEM,
 				'Apply code changes to workspace files',
 			),
 		),
@@ -125,6 +126,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					return !!result;
 				},
 				'ACCEPT_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Accept all changes in a change group',
 			),
 		),
@@ -140,6 +142,7 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					return true;
 				},
 				'REJECT_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Reject all changes in a change group',
 			),
 		),
@@ -205,12 +208,17 @@ export function registerCommands(context: vscode.ExtensionContext) {
 
 							// If successful, remove the file from the group
 							if (result) {
-								group.files.delete = group.files.delete.filter((p) => p !== filePath);
+								group.files.delete = group.files.delete.filter((f) => f !== filePath);
 							}
 						}
 					}
 
-					// If the group is now empty, remove it from storage
+					if (!result) {
+						console.warn(`Failed to apply changes for file: ${filePath}`);
+						return false;
+					}
+
+					// If all files in the group have been processed, remove the group
 					if (
 						group.files.modify.length === 0 &&
 						group.files.create.length === 0 &&
@@ -218,13 +226,14 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					) {
 						await storageService.deleteChangeGroup(groupId);
 					} else {
-						// Otherwise, update the group in storage
-						await storageService.saveChangeGroup(group);
+						// Otherwise, update the group
+						await storageService.updateChangeGroup(group);
 					}
 
-					return result;
+					return true;
 				},
 				'ACCEPT_FILE',
+				ErrorCategory.SYSTEM,
 				'Accept changes for a specific file',
 			),
 		),
@@ -254,10 +263,10 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					} else if (fileType === 'create') {
 						group.files.create = group.files.create.filter((f) => f.path !== filePath);
 					} else if (fileType === 'delete') {
-						group.files.delete = group.files.delete.filter((p) => p !== filePath);
+						group.files.delete = group.files.delete.filter((f) => f !== filePath);
 					}
 
-					// If the group is now empty, remove it from storage
+					// If all files in the group have been processed, remove the group
 					if (
 						group.files.modify.length === 0 &&
 						group.files.create.length === 0 &&
@@ -265,13 +274,14 @@ export function registerCommands(context: vscode.ExtensionContext) {
 					) {
 						await storageService.deleteChangeGroup(groupId);
 					} else {
-						// Otherwise, update the group in storage
-						await storageService.saveChangeGroup(group);
+						// Otherwise, update the group
+						await storageService.updateChangeGroup(group);
 					}
 
 					return true;
 				},
 				'REJECT_FILE',
+				ErrorCategory.SYSTEM,
 				'Reject changes for a specific file',
 			),
 		),
@@ -279,141 +289,70 @@ export function registerCommands(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand(
 			'tribe.modifyChange',
 			errorWrapper(
-				async (groupId: string, filePath: string, newContent: string): Promise<boolean> => {
-					console.log(`Modifying change: ${filePath} in group: ${groupId}`);
+				async (
+					changeId: string,
+					newContent: string,
+				): Promise<boolean> => {
+					console.log(`Modifying change: ${changeId}`);
 
-					// Get the change group from storage
-					const groups = await storageService.getChangeGroups();
-					const group = groups.find((g) => g.id === groupId);
+					// Get the change from storage
+					const changes = await storageService.getPendingChanges();
+					const changeIndex = changes.findIndex((c) => c.id === changeId);
 
-					if (!group) {
-						console.warn(`Change group not found: ${groupId}`);
+					if (changeIndex === -1) {
+						console.warn(`Change not found: ${changeId}`);
 						return false;
 					}
 
-					// Find the file in the appropriate list and update its content
-					let fileUpdated = false;
+					// Update the change content
+					changes[changeIndex].newContent = newContent;
 
-					// Check in modify list
-					const modifyIndex = group.files.modify.findIndex((f) => f.path === filePath);
-					if (modifyIndex >= 0) {
-						group.files.modify[modifyIndex].content = newContent;
-						fileUpdated = true;
-					}
+					// Regenerate hunks
+					changes[changeIndex] = DiffUtils.regenerateHunks(changes[changeIndex]);
 
-					// Check in create list
-					const createIndex = group.files.create.findIndex((f) => f.path === filePath);
-					if (createIndex >= 0) {
-						group.files.create[createIndex].content = newContent;
-						fileUpdated = true;
-					}
+					// Save the updated change
+					await storageService.updatePendingChange(changes[changeIndex]);
 
-					// If the file was updated, save the group to storage
-					if (fileUpdated) {
-						await storageService.saveChangeGroup(group);
-					}
-
-					return fileUpdated;
+					return true;
 				},
 				'MODIFY_CHANGE',
+				ErrorCategory.SYSTEM,
 				'Modify content of a pending change',
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.requestExplanation',
+			'tribe.explainChange',
 			errorWrapper(
-				async (groupId: string, filePath: string): Promise<string> => {
-					console.log(`Requesting explanation for: ${filePath} in group: ${groupId}`);
+				async (changeId: string): Promise<string> => {
+					console.log(`Explaining change: ${changeId}`);
 
-					// Get the change group from storage
-					const groups = await storageService.getChangeGroups();
-					const group = groups.find((g) => g.id === groupId);
+					// Get the change from storage
+					const changes = await storageService.getPendingChanges();
+					const change = changes.find((c) => c.id === changeId);
 
-					if (!group) {
-						console.warn(`Change group not found: ${groupId}`);
-						return "Couldn't find the change group to explain.";
+					if (!change) {
+						console.warn(`Change not found: ${changeId}`);
+						return 'Change not found';
 					}
 
-					// Find the file in the appropriate list
-					let fileToExplain;
-					let fileType: 'modify' | 'create' | 'delete' = 'modify';
-
-					// Check in modify list
-					fileToExplain = group.files.modify.find((f) => f.path === filePath);
-					if (fileToExplain) {
-						fileType = 'modify';
-					} else {
-						// Check in create list
-						fileToExplain = group.files.create.find((f) => f.path === filePath);
-						if (fileToExplain) {
-							fileType = 'create';
-						} else {
-							// Check in delete list
-							if (group.files.delete.includes(filePath)) {
-								fileType = 'delete';
-							}
-						}
-					}
-
-					// If the file already has an explanation, return it
-					if (fileToExplain && fileToExplain.explanation) {
-						return fileToExplain.explanation;
-					}
-
-					// Otherwise, generate an explanation
-					let explanation = '';
-					if (fileType === 'modify') {
-						explanation = `This change to ${filePath} implements the requested functionality by:
-                    
-1. Adding necessary imports and dependencies
-2. Implementing the core logic for the feature
-3. Ensuring proper error handling and edge cases
-4. Optimizing performance where possible
-5. Adding appropriate documentation
-
-The key changes include updating function signatures, adding error handling, and improving the overall code structure.`;
-					} else if (fileType === 'create') {
-						explanation = `This new file ${filePath} is created to:
-                    
-1. Implement a new feature or component
-2. Provide utility functions for the application
-3. Enhance the overall architecture
-4. Support the existing codebase with additional functionality
-5. Improve maintainability and code organization
-
-The file contains all necessary imports, proper error handling, and comprehensive documentation.`;
-					} else if (fileType === 'delete') {
-						explanation = `The file ${filePath} is being deleted because:
-                    
-1. Its functionality has been deprecated
-2. It has been replaced by a more efficient implementation
-3. It's no longer needed in the current architecture
-4. Its functionality has been merged into other files
-5. It contained outdated or redundant code`;
-					}
-
-					// If we found a file to explain, update its explanation
-					if (fileToExplain) {
-						fileToExplain.explanation = explanation;
-						await storageService.saveChangeGroup(group);
-					}
-
-					return explanation;
+					// TODO: Implement AI-powered explanation
+					return 'Change explanation not yet implemented';
 				},
-				'REQUEST_EXPLANATION',
+				'EXPLAIN_CHANGE',
+				ErrorCategory.SYSTEM,
 				'Request explanation for a specific file change',
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.getPendingChanges',
+			'tribe.getChanges',
 			errorWrapper(
 				async (): Promise<any[]> => {
-					// Get all change groups from storage
-					return storageService.getChangeGroups();
+					return await storageService.getPendingChanges();
 				},
-				'GET_PENDING_CHANGES',
+				'GET_CHANGES',
+				ErrorCategory.SYSTEM,
 				'Get all pending changes',
 			),
 		),
@@ -421,11 +360,21 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.viewDiff',
 			errorWrapper(
-				async (originalContent: string, newContent: string, title: string): Promise<void> => {
-					// Use the DiffUtils class to show the diff
-					await DiffUtils.showDiff(originalContent, newContent, title);
+				async (changeId: string): Promise<void> => {
+					// Get the change from storage
+					const changes = await storageService.getPendingChanges();
+					const change = changes.find((c) => c.id === changeId);
+
+					if (!change) {
+						console.warn(`Change not found: ${changeId}`);
+						return;
+					}
+
+					// Show diff in editor
+					await DiffUtils.showDiff(change.path, change.originalContent, change.content);
 				},
 				'VIEW_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff between original and new content',
 			),
 		),
@@ -433,34 +382,35 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.createCheckpoint',
 			errorWrapper(
-				async (description: string): Promise<any> => {
-					console.log(`Creating checkpoint: ${description}`);
+				async (name?: string): Promise<string> => {
+					// Generate checkpoint name if not provided
+					if (!name) {
+						name = `Checkpoint ${new Date().toLocaleString()}`;
+					}
 
-					// Create a checkpoint ID
-					const checkpointId = `checkpoint-${Date.now()}`;
+					// Create a snapshot of the workspace
+					const snapshot = await DiffUtils.createWorkspaceSnapshot();
 
-					// Create a snapshot of the current workspace
-					const snapshot = await storageService.createWorkspaceSnapshot();
-
-					// Create the checkpoint object
+					// Save the checkpoint
 					const checkpoint = {
-						id: checkpointId,
+						id: `checkpoint-${Date.now()}`,
+						description: name || 'Checkpoint',
 						timestamp: new Date().toISOString(),
-						description,
 						changes: {
 							modified: 0,
 							created: 0,
-							deleted: 0,
+							deleted: 0
 						},
-						snapshotPath: '', // This will be set by saveCheckpoint
+						snapshotPath: '',
+						snapshot,
 					};
 
-					// Save the checkpoint to storage
 					await storageService.saveCheckpoint(checkpoint, snapshot);
 
-					return checkpoint;
+					return checkpoint.id;
 				},
 				'CREATE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Create a checkpoint of the current workspace state',
 			),
 		),
@@ -469,10 +419,10 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 			'tribe.getCheckpoints',
 			errorWrapper(
 				async (): Promise<any[]> => {
-					// Get all checkpoints from storage
-					return storageService.getCheckpoints();
+					return await storageService.getCheckpoints();
 				},
 				'GET_CHECKPOINTS',
+				ErrorCategory.SYSTEM,
 				'Get all checkpoints',
 			),
 		),
@@ -481,22 +431,25 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 			'tribe.restoreCheckpoint',
 			errorWrapper(
 				async (checkpointId: string): Promise<boolean> => {
-					console.log(`Restoring checkpoint: ${checkpointId}`);
+					// Get the checkpoint from storage
+					const checkpoints = await storageService.getCheckpoints();
+					const checkpoint = checkpoints.find((c) => c.id === checkpointId);
 
-					try {
-						// Get the checkpoint snapshot
-						const snapshot = await storageService.getCheckpointSnapshot(checkpointId);
-
-						// Restore the workspace from the snapshot
-						await storageService.restoreWorkspaceFromSnapshot(snapshot);
-
-						return true;
-					} catch (error) {
-						console.error(`Error restoring checkpoint: ${error}`);
+					if (!checkpoint) {
+						console.warn(`Checkpoint not found: ${checkpointId}`);
 						return false;
 					}
+
+					// Get the snapshot data
+					const snapshotData = await storageService.getCheckpointSnapshot(checkpoint.id);
+					
+					// Restore the workspace to the checkpoint
+					await DiffUtils.restoreWorkspaceSnapshot(snapshotData);
+
+					return true;
 				},
 				'RESTORE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Restore workspace to a checkpoint',
 			),
 		),
@@ -505,13 +458,11 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 			'tribe.deleteCheckpoint',
 			errorWrapper(
 				async (checkpointId: string): Promise<boolean> => {
-					console.log(`Deleting checkpoint: ${checkpointId}`);
-
-					// Delete the checkpoint from storage
 					await storageService.deleteCheckpoint(checkpointId);
 					return true;
 				},
 				'DELETE_CHECKPOINT',
+				ErrorCategory.SYSTEM,
 				'Delete a checkpoint',
 			),
 		),
@@ -520,45 +471,31 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 			'tribe.viewCheckpointDiff',
 			errorWrapper(
 				async (checkpointId: string): Promise<void> => {
-					console.log(`Viewing diff for checkpoint: ${checkpointId}`);
+					// Get the checkpoint from storage
+					const checkpoints = await storageService.getCheckpoints();
+					const checkpoint = checkpoints.find((c) => c.id === checkpointId);
 
-					try {
-						// Get the checkpoint snapshot
-						const checkpointSnapshot = await storageService.getCheckpointSnapshot(checkpointId);
+					if (!checkpoint) {
+						console.warn(`Checkpoint not found: ${checkpointId}`);
+						return;
+					}
 
-						// Create a snapshot of the current workspace
-						const currentSnapshot = await storageService.createWorkspaceSnapshot();
+					// Create a snapshot of the current workspace
+					const currentSnapshot = await DiffUtils.createWorkspaceSnapshot();
 
-						// Calculate the diff between the two snapshots
-						const diff = storageService.calculateDiff(checkpointSnapshot, currentSnapshot);
+					// Get the snapshot data
+					const snapshotData = await storageService.getCheckpointSnapshot(checkpoint.id);
+					
+					// Compare the snapshots and generate diffs
+					const diffs = DiffUtils.compareSnapshots(snapshotData, currentSnapshot);
 
-						// Show a summary of the diff
-						const message = `Changes since checkpoint:
-- Modified: ${diff.modified.length} files
-- Created: ${diff.created.length} files
-- Deleted: ${diff.deleted.length} files`;
-
-						vscode.window.showInformationMessage(message);
-
-						// If there are modified files, show the first one
-						if (diff.modified.length > 0) {
-							const filePath = diff.modified[0];
-							const originalContent = checkpointSnapshot[filePath] || '';
-							const newContent = currentSnapshot[filePath] || '';
-
-							// Use DiffUtils to show the diff
-							await DiffUtils.showDiff(
-								originalContent,
-								newContent,
-								`Diff for ${filePath} (Checkpoint vs Current)`,
-							);
-						}
-					} catch (error) {
-						console.error(`Error viewing checkpoint diff: ${error}`);
-						vscode.window.showErrorMessage(`Failed to view checkpoint diff: ${error}`);
+					// Show diffs in editor
+					for (const diff of diffs) {
+						await DiffUtils.showDiff(diff.path, diff.originalContent, diff.content);
 					}
 				},
 				'VIEW_CHECKPOINT_DIFF',
+				ErrorCategory.SYSTEM,
 				'View diff between checkpoint and current state',
 			),
 		),
@@ -567,10 +504,10 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 			'tribe.getAnnotations',
 			errorWrapper(
 				async (): Promise<any[]> => {
-					// Get all annotations from storage
-					return storageService.getAnnotations();
+					return await storageService.getAnnotations();
 				},
 				'GET_ANNOTATIONS',
+				ErrorCategory.SYSTEM,
 				'Get all annotations',
 			),
 		),
@@ -578,30 +515,44 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.addAnnotation',
 			errorWrapper(
-				async (annotation: any): Promise<any> => {
-					console.log(`Adding annotation: ${JSON.stringify(annotation)}`);
+				async (annotation: {
+					filePath: string;
+					lineNumber: number;
+					content: string;
+					author?: string;
+					timestamp?: string;
+					type?: string;
+				}): Promise<string> => {
+					// Generate an ID for the annotation
+					const id = `annotation-${Date.now()}`;
 
-					// Create an annotation ID if not provided
-					if (!annotation.id) {
-						annotation.id = `annotation-${Date.now()}`;
-					}
+					// Create the annotation object
+					const newAnnotation = {
+						id,
+						filePath: annotation.filePath,
+						lineNumber: ('lineNumber' in annotation) ? annotation.lineNumber : (annotation as any).lineStart,
+						content: annotation.content,
+						author: {
+							id: 'user-1',
+							name: annotation.author || 'User',
+							type: 'human' as const
+						},
+						timestamp: annotation.timestamp || new Date().toISOString(),
+						type: annotation.type || 'comment',
+						resolved: false,
+						replies: [],
+					};
 
-					// Set timestamp if not provided
-					if (!annotation.timestamp) {
-						annotation.timestamp = new Date().toISOString();
-					}
+					// Save the annotation
+					await storageService.saveAnnotation(newAnnotation);
 
-					// Initialize replies if not provided
-					if (!annotation.replies) {
-						annotation.replies = [];
-					}
+					// Decorate the editor with the annotation
+					// TODO: Implement editor decoration
 
-					// Save the annotation to storage
-					await storageService.saveAnnotation(annotation);
-
-					return annotation;
+					return id;
 				},
 				'ADD_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Add an annotation',
 			),
 		),
@@ -609,42 +560,27 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.editAnnotation',
 			errorWrapper(
-				async (id: string, content: string): Promise<boolean> => {
-					console.log(`Editing annotation: ${id} with content: ${content}`);
-
-					// Get all annotations from storage
+				async (annotationId: string, content: string): Promise<boolean> => {
+					// Get the annotation from storage
 					const annotations = await storageService.getAnnotations();
+					const annotation = annotations.find((a) => a.id === annotationId);
 
-					// Helper function to recursively find and update the annotation
-					const updateAnnotation = (items: any[]): boolean => {
-						for (const item of items) {
-							if (item.id === id) {
-								item.content = content;
-								return true;
-							}
-							if (item.replies && item.replies.length > 0) {
-								if (updateAnnotation(item.replies)) {
-									return true;
-								}
-							}
-						}
+					if (!annotation) {
+						console.warn(`Annotation not found: ${annotationId}`);
 						return false;
-					};
-
-					// Update the annotation
-					if (updateAnnotation(annotations)) {
-						// Save the updated annotations to storage
-						await storageService.getAnnotations().then(async () => {
-							for (const annotation of annotations) {
-								await storageService.saveAnnotation(annotation);
-							}
-						});
-						return true;
 					}
 
-					return false;
+					// Update the annotation
+					annotation.content = content;
+					annotation.timestamp = new Date().toISOString();
+
+					// Save the updated annotation
+					await storageService.updateAnnotation(annotation);
+
+					return true;
 				},
 				'EDIT_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Edit an annotation',
 			),
 		),
@@ -652,14 +588,12 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.deleteAnnotation',
 			errorWrapper(
-				async (id: string): Promise<boolean> => {
-					console.log(`Deleting annotation: ${id}`);
-
-					// Delete the annotation from storage
-					await storageService.deleteAnnotation(id);
+				async (annotationId: string): Promise<boolean> => {
+					await storageService.deleteAnnotation(annotationId);
 					return true;
 				},
 				'DELETE_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Delete an annotation',
 			),
 		),
@@ -667,40 +601,54 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.replyToAnnotation',
 			errorWrapper(
-				async (parentId: string, reply: any): Promise<any> => {
-					console.log(`Replying to annotation: ${parentId} with: ${JSON.stringify(reply)}`);
+				async (
+					annotationId: string,
+					content: string,
+					author?: string,
+				): Promise<boolean> => {
+					// Get the annotation from storage
+					const annotations = await storageService.getAnnotations();
+					const annotation = annotations.find((a) => a.id === annotationId);
 
-					// Create a reply ID if not provided
-					if (!reply.id) {
-						reply.id = `reply-${Date.now()}`;
+					if (!annotation) {
+						console.warn(`Annotation not found: ${annotationId}`);
+						return false;
 					}
 
-					// Set timestamp if not provided
-					if (!reply.timestamp) {
-						reply.timestamp = new Date().toISOString();
-					}
+					// Create the reply
+					const reply = {
+						id: `reply-${Date.now()}`,
+						content,
+						author: {
+							id: 'user-1',
+							name: author || 'User',
+							type: 'human' as const
+						},
+						timestamp: new Date().toISOString(),
+						filePath: annotation.filePath,
+						lineNumber: ('lineNumber' in annotation) ? annotation.lineNumber : (annotation as any).lineStart,
+						resolved: false,
+						replies: []
+					};
 
-					// Initialize replies if not provided
-					if (!reply.replies) {
-						reply.replies = [];
-					}
+					// Add the reply to the annotation
+					annotation.replies.push(reply);
 
-					// Add the reply to the parent annotation
-					await storageService.addReplyToAnnotation(parentId, reply);
+					// Save the updated annotation
+					await storageService.updateAnnotation(annotation);
 
-					return reply;
+					return true;
 				},
 				'REPLY_TO_ANNOTATION',
+				ErrorCategory.SYSTEM,
 				'Reply to an annotation',
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.selectImplementation',
+			'tribe.selectAlternative',
 			errorWrapper(
 				async (implementationId: string): Promise<boolean> => {
-					console.log(`Selecting implementation: ${implementationId}`);
-
 					// Get the implementation from storage
 					const implementations = await storageService.getImplementations();
 					const implementation = implementations.find((i) => i.id === implementationId);
@@ -710,26 +658,17 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 						return false;
 					}
 
-					// Convert the implementation to a change group
-					const changeGroup = {
-						id: `group-${Date.now()}`,
-						title: implementation.title,
-						description: implementation.description,
-						agentId: 'system',
-						agentName: 'System',
-						timestamp: new Date().toISOString(),
-						files: implementation.files,
-					};
-
-					// Save the change group to storage
-					await storageService.saveChangeGroup(changeGroup);
-
-					// Delete the implementation from storage
-					await storageService.deleteImplementation(implementationId);
+					// Apply the implementation
+					await vscode.commands.executeCommand('tribe.applyChanges', {
+						filesToModify: implementation.files.modify || [],
+						filesToCreate: implementation.files.create || [],
+						filesToDelete: implementation.files.delete || [],
+					});
 
 					return true;
 				},
-				'SELECT_IMPLEMENTATION',
+				'SELECT_ALTERNATIVE',
+				ErrorCategory.SYSTEM,
 				'Select an alternative implementation',
 			),
 		),
@@ -737,13 +676,26 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.generateHunks',
 			errorWrapper(
-				async (filePath: string, originalContent: string, modifiedContent: string): Promise<any[]> => {
-					console.log(`Generating hunks for file: ${filePath}`);
+				async (changeId: string): Promise<boolean> => {
+					// Get the change from storage
+					const changes = await storageService.getPendingChanges();
+					const change = changes.find((c) => c.id === changeId);
 
-					// Use DiffUtils to generate hunks
-					return DiffUtils.generateHunks(originalContent, modifiedContent);
+					if (!change) {
+						console.warn(`Change not found: ${changeId}`);
+						return false;
+					}
+
+					// Regenerate hunks
+					const updatedChange = DiffUtils.regenerateHunks(change);
+
+					// Save the updated change
+					await storageService.updatePendingChange(updatedChange);
+
+					return true;
 				},
 				'GENERATE_HUNKS',
+				ErrorCategory.SYSTEM,
 				'Generate hunks for a file change',
 			),
 		),
@@ -751,59 +703,62 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.createChangeGroup',
 			errorWrapper(
-				async (payload: {
-					title: string;
-					description: string;
-					agentId: string;
-					agentName: string;
-					filesToModify: Array<{ path: string; content: string }>;
-					filesToCreate: Array<{ path: string; content: string }>;
-					filesToDelete: string[];
-				}): Promise<string> => {
-					console.log(`Creating change group: ${payload.title}`);
+				async (changes: string[], name?: string): Promise<string> => {
+					// Get the changes from storage
+					const allChanges = await storageService.getPendingChanges();
+					const selectedChanges = allChanges.filter((c) => changes.includes(c.id));
 
-					// Generate a unique ID for the change group
-					const groupId = `group-${Date.now()}`;
+					if (selectedChanges.length === 0) {
+						console.warn('No changes selected for group creation');
+						return '';
+					}
 
-					// Create file changes with hunks for modified files
-					const modifyChanges = await Promise.all(
-						payload.filesToModify.map(async (file) => {
-							// Get the original content if the file exists
-							const originalContent = DiffUtils.getFileContent(file.path) || '';
-
-							// Generate a FileChange object with hunks
-							return DiffUtils.generateFileChange(file.path, originalContent, file.content);
-						}),
-					);
-
-					// Create file changes for new files
-					const createChanges = payload.filesToCreate.map((file) => ({
-						path: file.path,
-						content: file.content,
-						explanation: `Created new file: ${file.path}`,
-					}));
+					// Generate a name if not provided
+					if (!name) {
+						name = `Change Group ${new Date().toLocaleString()}`;
+					}
 
 					// Create the change group
-					const changeGroup = {
-						id: groupId,
-						title: payload.title,
-						description: payload.description,
-						agentId: payload.agentId,
-						agentName: payload.agentName,
+					const changeGroup: ChangeGroup = {
+						id: `group-${Date.now()}`,
+						title: name,
+						description: `Changes created on ${new Date().toLocaleString()}`,
+						agentId: 'system-1',
+						agentName: 'System',
 						timestamp: new Date().toISOString(),
 						files: {
-							modify: modifyChanges,
-							create: createChanges,
-							delete: payload.filesToDelete,
+							modify: [] as FileChange[],
+							create: [] as FileChange[],
+							delete: [],
 						},
 					};
+
+					// Organize changes by file operation
+					for (const change of selectedChanges) {
+						if (change.type === 'modify') {
+							changeGroup.files.modify.push({
+								path: change.path,
+								content: change.content,
+								type: 'modify',
+							});
+						} else if (change.type === 'create') {
+							changeGroup.files.create.push({
+								path: change.path,
+								content: change.content,
+								type: 'create',
+							});
+						} else if (change.type === 'delete') {
+							changeGroup.files.delete.push(change.path);
+						}
+					}
 
 					// Save the change group
 					await storageService.saveChangeGroup(changeGroup);
 
-					return groupId;
+					return changeGroup.id;
 				},
 				'CREATE_CHANGE_GROUP',
+				ErrorCategory.SYSTEM,
 				'Create a change group from a set of changes',
 			),
 		),
@@ -811,408 +766,184 @@ The file contains all necessary imports, proper error handling, and comprehensiv
 		vscode.commands.registerCommand(
 			'tribe.getWorkspaceSnapshot',
 			errorWrapper(
-				async (): Promise<Record<string, string>> => {
-					console.log('Getting workspace snapshot');
-
-					// Use the storage service to create a workspace snapshot
-					return storageService.createWorkspaceSnapshot();
+				async (): Promise<any> => {
+					return await DiffUtils.createWorkspaceSnapshot();
 				},
 				'GET_WORKSPACE_SNAPSHOT',
+				ErrorCategory.SYSTEM,
 				'Get a snapshot of the current workspace',
 			),
 		),
+	];
 
-		// Enhanced diff algorithm commands
+	// Register collaborative commands
+	const collaborativeCommands = [
 		vscode.commands.registerCommand(
-			'tribe.calculateDetailedDiff',
+			'tribe.shareWorkspace',
 			errorWrapper(
-				async (payload: { oldContent: string; newContent: string; filePath: string }): Promise<any> => {
-					console.log('Calculating detailed diff for:', payload.filePath);
-
+				async (): Promise<string> => {
 					try {
-						// Generate a FileChange object with hunks using Myers diff algorithm
-						const fileChange = DiffUtils.generateFileChange(
-							payload.filePath,
-							payload.oldContent,
-							payload.newContent,
-						);
+						// Create a workspace snapshot
+						const snapshot = await DiffUtils.createWorkspaceSnapshot();
 
-						return {
-							fileChange,
-							success: true,
-						};
+						// Generate a unique session ID
+						const sessionId = `session-${Date.now()}`;
+
+						// TODO: Implement sharing logic with collaboration service
+
+						return sessionId;
 					} catch (error) {
-						console.error('Error calculating detailed diff:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
+						console.error('Error sharing workspace:', error);
+						throw new Error('Failed to share workspace: ' + (error as Error).message);
 					}
 				},
-				'Calculate detailed diff',
-				ErrorSeverity.ERROR,
-			),
-		),
-
-		// Conflict resolution commands
-		vscode.commands.registerCommand(
-			'tribe.detectConflicts',
-			errorWrapper(
-				async (payload: {
-					changes: Array<{
-						agentId: string;
-						agentName: string;
-						files: {
-							modify: Array<{ path: string; content: string; originalContent?: string }>;
-							create: Array<{ path: string; content: string }>;
-							delete: string[];
-						};
-					}>;
-				}): Promise<any> => {
-					console.log('Detecting conflicts in changes from multiple agents');
-
-					try {
-						const conflicts: Array<{
-							id: string;
-							type: 'merge' | 'dependency' | 'logic' | 'other';
-							description: string;
-							status: 'pending';
-							files: string[];
-							conflictingChanges: Record<string, any[]>;
-						}> = [];
-
-						// Group changes by file path
-						const fileChanges: Record<
-							string,
-							Array<{
-								agentId: string;
-								agentName: string;
-								content: string;
-								originalContent?: string;
-							}>
-						> = {};
-
-						// Collect all file modifications
-						for (const change of payload.changes) {
-							for (const file of change.files.modify) {
-								if (!fileChanges[file.path]) {
-									fileChanges[file.path] = [];
-								}
-
-								fileChanges[file.path].push({
-									agentId: change.agentId,
-									agentName: change.agentName,
-									content: file.content,
-									originalContent: file.originalContent,
-								});
-							}
-						}
-
-						// Detect conflicts in file modifications
-						for (const [filePath, changes] of Object.entries(fileChanges)) {
-							if (changes.length > 1) {
-								// Check if the changes are identical
-								const firstContent = changes[0].content;
-								const hasConflict = changes.some((change) => change.content !== firstContent);
-
-								if (hasConflict) {
-									// Create a conflict
-									const conflictId = `conflict-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-									const conflictingChanges: Record<string, any[]> = {};
-
-									for (const change of changes) {
-										if (!conflictingChanges[change.agentId]) {
-											conflictingChanges[change.agentId] = [];
-										}
-
-										conflictingChanges[change.agentId].push({
-											path: filePath,
-											content: change.content,
-											originalContent: change.originalContent,
-											timestamp: new Date().toISOString(),
-										});
-									}
-
-									conflicts.push({
-										id: conflictId,
-										type: 'merge',
-										description: `Multiple agents modified ${filePath}`,
-										status: 'pending',
-										files: [filePath],
-										conflictingChanges,
-									});
-
-									// Save the conflict to storage
-									await storageService.saveConflict({
-										id: conflictId,
-										type: 'merge',
-										description: `Multiple agents modified ${filePath}`,
-										status: 'pending',
-										files: [filePath],
-										conflictingChanges,
-									});
-								}
-							}
-						}
-
-						return {
-							conflicts,
-							success: true,
-						};
-					} catch (error) {
-						console.error('Error detecting conflicts:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
-					}
-				},
-				'Detect conflicts',
-				ErrorSeverity.ERROR,
+				'SHARE_WORKSPACE',
+				ErrorCategory.SYSTEM,
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.resolveConflict',
+			'tribe.joinWorkspace',
 			errorWrapper(
-				async (payload: {
-					conflictId: string;
-					resolution: 'auto' | 'manual';
-					manualResolution?: {
-						path: string;
-						content: string;
-					}[];
-				}): Promise<any> => {
-					console.log('Resolving conflict:', payload.conflictId);
-
+				async (sessionId: string): Promise<boolean> => {
 					try {
-						if (payload.resolution === 'auto') {
-							// Use the automatic conflict resolution
-							const resolvedChanges = await storageService.resolveConflictAutomatically(
-								payload.conflictId,
-							);
+						console.log(`Joining workspace session: ${sessionId}`);
 
-							return {
-								resolvedChanges,
-								success: true,
-							};
-						} else if (payload.resolution === 'manual' && payload.manualResolution) {
-							// Apply the manual resolution
-							const conflicts = await storageService.getConflicts();
-							const conflict = conflicts.find((c) => c.id === payload.conflictId);
+						// TODO: Implement join logic with collaboration service
 
-							if (!conflict) {
-								throw new Error(`Conflict not found: ${payload.conflictId}`);
-							}
+						// Fetch the workspace snapshot
+						// const snapshot = await collaborationService.getSnapshot(sessionId);
 
-							// Update the conflict with the resolved changes
-							conflict.resolvedChanges = payload.manualResolution.map((file) => ({
-								path: file.path,
-								content: file.content,
-								timestamp: new Date().toISOString(),
-							}));
+						// Restore the workspace to the snapshot
+						// await DiffUtils.restoreWorkspaceSnapshot(snapshot);
 
-							conflict.status = 'resolved';
-							conflict.resolutionStrategy = 'manual';
-							conflict.resolutionTimestamp = new Date().toISOString();
-
-							await storageService.saveConflict(conflict);
-
-							return {
-								resolvedChanges: conflict.resolvedChanges,
-								success: true,
-							};
-						} else {
-							throw new Error('Invalid resolution strategy or missing manual resolution');
-						}
+						return true;
 					} catch (error) {
-						console.error('Error resolving conflict:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
+						console.error('Error joining workspace:', error);
+						throw new Error('Failed to join workspace: ' + (error as Error).message);
 					}
 				},
-				'Resolve conflict',
-				ErrorSeverity.ERROR,
-			),
-		),
-
-		// Change history commands
-		vscode.commands.registerCommand(
-			'tribe.getChangeHistory',
-			errorWrapper(
-				async (): Promise<any> => {
-					console.log('Getting change history');
-
-					try {
-						const history = await storageService.getChangeHistory();
-						return {
-							history,
-							success: true,
-						};
-					} catch (error) {
-						console.error('Error getting change history:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
-					}
-				},
-				'Get change history',
-				ErrorSeverity.ERROR,
-			),
-		),
-
-		// Checkpoint and sub-checkpoint commands
-		vscode.commands.registerCommand(
-			'tribe.createCheckpoint',
-			errorWrapper(
-				async (payload: { description: string; changeGroups?: string[] }): Promise<any> => {
-					console.log('Creating checkpoint:', payload.description);
-
-					try {
-						// Create a snapshot of the current workspace
-						const snapshotData = await storageService.createWorkspaceSnapshot();
-
-						// Create a checkpoint
-						const checkpoint = {
-							id: `checkpoint-${Date.now()}`,
-							timestamp: new Date().toISOString(),
-							description: payload.description,
-							changes: {
-								modified: 0,
-								created: 0,
-								deleted: 0,
-							},
-							snapshotPath: '',
-							changeGroups: payload.changeGroups || [],
-						};
-
-						// Save the checkpoint
-						await storageService.saveCheckpoint(checkpoint, snapshotData);
-
-						return {
-							checkpoint,
-							success: true,
-						};
-					} catch (error) {
-						console.error('Error creating checkpoint:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
-					}
-				},
-				'Create checkpoint',
-				ErrorSeverity.ERROR,
+				'JOIN_WORKSPACE',
+				ErrorCategory.SYSTEM,
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.createSubCheckpoint',
+			'tribe.syncWorkspace',
 			errorWrapper(
-				async (payload: {
-					parentCheckpointId: string;
-					description: string;
-					changes: {
-						modified: string[];
-						created: string[];
-						deleted: string[];
-					};
-				}): Promise<any> => {
-					console.log('Creating sub-checkpoint for:', payload.parentCheckpointId);
-
+				async (sessionId: string): Promise<boolean> => {
 					try {
-						const subCheckpoint = await storageService.createSubCheckpoint(
-							payload.parentCheckpointId,
-							payload.description,
-							payload.changes,
-						);
+						console.log(`Syncing workspace session: ${sessionId}`);
 
-						return {
-							subCheckpoint,
-							success: true,
-						};
+						// TODO: Implement sync logic with collaboration service
+
+						// Create a new snapshot of the local workspace
+						const localSnapshot = await DiffUtils.createWorkspaceSnapshot();
+
+						// Send the snapshot to the collaboration service
+						// await collaborationService.updateSnapshot(sessionId, localSnapshot);
+
+						// Get the latest snapshot from the collaboration service
+						// const remoteSnapshot = await collaborationService.getSnapshot(sessionId);
+
+						// Compare snapshots and generate diffs
+						// const diffs = DiffUtils.compareSnapshots(localSnapshot, remoteSnapshot);
+
+						// Apply changes as needed
+
+						return true;
 					} catch (error) {
-						console.error('Error creating sub-checkpoint:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
+						console.error('Error syncing workspace:', error);
+						throw new Error('Failed to sync workspace: ' + (error as Error).message);
 					}
 				},
-				'Create sub-checkpoint',
-				ErrorSeverity.ERROR,
+				'SYNC_WORKSPACE',
+				ErrorCategory.SYSTEM,
 			),
 		),
 
 		vscode.commands.registerCommand(
-			'tribe.revertToSubCheckpoint',
+			'tribe.endSession',
 			errorWrapper(
-				async (payload: { parentCheckpointId: string; subCheckpointId: string }): Promise<any> => {
-					console.log('Reverting to sub-checkpoint:', payload.subCheckpointId);
-
+				async (sessionId: string): Promise<boolean> => {
 					try {
-						await storageService.revertToSubCheckpoint(payload.parentCheckpointId, payload.subCheckpointId);
+						console.log(`Ending workspace session: ${sessionId}`);
 
-						return {
-							success: true,
-						};
+						// TODO: Implement end session logic with collaboration service
+
+						return true;
 					} catch (error) {
-						console.error('Error reverting to sub-checkpoint:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
+						console.error('Error ending workspace session:', error);
+						throw new Error('Failed to end workspace session: ' + (error as Error).message);
 					}
 				},
-				'Revert to sub-checkpoint',
-				ErrorSeverity.ERROR,
+				'END_SESSION',
+				ErrorCategory.SYSTEM,
 			),
 		),
 
-		// Semantic grouping commands
 		vscode.commands.registerCommand(
-			'tribe.groupChangesByFeature',
+			'tribe.sendMessage',
 			errorWrapper(
-				async (payload: {
-					fileChanges: Array<{
-						path: string;
-						content: string;
-						originalContent?: string;
-						hunks?: Array<{
-							startLine: number;
-							endLine: number;
-							content: string;
-							originalContent?: string;
-							semanticGroup?: string;
-						}>;
-					}>;
-				}): Promise<any> => {
-					console.log('Grouping changes by feature');
-
+				async (sessionId: string, message: string): Promise<boolean> => {
 					try {
-						const groupedChanges = storageService.groupFileChangesByFeature(payload.fileChanges);
+						console.log(`Sending message to session: ${sessionId}`);
 
-						return {
-							groupedChanges,
-							success: true,
-						};
+						// TODO: Implement message sending logic with collaboration service
+
+						return true;
 					} catch (error) {
-						console.error('Error grouping changes by feature:', error);
-						return {
-							error: error instanceof Error ? error.message : String(error),
-							success: false,
-						};
+						console.error('Error sending message:', error);
+						throw new Error('Failed to send message: ' + (error as Error).message);
 					}
 				},
-				'Group changes by feature',
-				ErrorSeverity.ERROR,
+				'SEND_MESSAGE',
+				ErrorCategory.SYSTEM,
+			),
+		),
+
+		vscode.commands.registerCommand(
+			'tribe.getMessages',
+			errorWrapper(
+				async (sessionId: string): Promise<any[]> => {
+					try {
+						console.log(`Getting messages for session: ${sessionId}`);
+
+						// TODO: Implement get messages logic with collaboration service
+
+						return [];
+					} catch (error) {
+						console.error('Error getting messages:', error);
+						throw new Error('Failed to get messages: ' + (error as Error).message);
+					}
+				},
+				'GET_MESSAGES',
+				ErrorCategory.SYSTEM,
+			),
+		),
+
+		vscode.commands.registerCommand(
+			'tribe.shareFile',
+			errorWrapper(
+				async (sessionId: string, filePath: string): Promise<boolean> => {
+					try {
+						console.log(`Sharing file ${filePath} with session: ${sessionId}`);
+
+						// TODO: Implement file sharing logic with collaboration service
+
+						return true;
+					} catch (error) {
+						console.error('Error sharing file:', error);
+						throw new Error('Failed to share file: ' + (error as Error).message);
+					}
+				},
+				'SHARE_FILE',
+				ErrorCategory.SYSTEM,
 			),
 		),
 	];
 
 	// Register all commands
-	context.subscriptions.push(...commands);
+	commands.forEach((command) => context.subscriptions.push(command));
+	collaborativeCommands.forEach((command) => context.subscriptions.push(command));
 }
