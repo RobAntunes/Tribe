@@ -14,6 +14,7 @@ import {
 	AnnotationReply,
 } from '../models/types';
 import { STORAGE_PATHS, getStorageDirectory } from '../config';
+import { Agent, Team, Project } from '../models/types';
 
 /**
  * Service for managing persistent storage of extension data
@@ -884,6 +885,186 @@ export class StorageService {
 			await fs.promises.writeFile(historyPath, JSON.stringify([], null, 2));
 		} catch (error) {
 			console.error('Error clearing history:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Agent and Team Management
+	 */
+
+	/**
+	 * Get all agents
+	 * @returns Array of agents
+	 */
+	public async getAgents(): Promise<Agent[]> {
+		try {
+			const agentsDir = path.join(this.storageDir, STORAGE_PATHS.AGENTS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(agentsDir)) {
+				fs.mkdirSync(agentsDir, { recursive: true });
+				return [];
+			}
+
+			const files = fs.readdirSync(agentsDir);
+			const agents: Agent[] = [];
+
+			for (const file of files) {
+				if (file.endsWith('.json')) {
+					const filePath = path.join(agentsDir, file);
+					const content = fs.readFileSync(filePath, 'utf8');
+					const agent = JSON.parse(content) as Agent;
+					agents.push(agent);
+				}
+			}
+
+			return agents;
+		} catch (error) {
+			console.error('Error getting agents:', error);
+			return [];
+		}
+	}
+
+	/**
+	 * Save an agent
+	 * @param agent Agent to save
+	 */
+	public async saveAgent(agent: Agent): Promise<void> {
+		try {
+			const agentsDir = path.join(this.storageDir, STORAGE_PATHS.AGENTS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(agentsDir)) {
+				fs.mkdirSync(agentsDir, { recursive: true });
+			}
+			
+			const filePath = path.join(agentsDir, `${agent.id}.json`);
+			fs.writeFileSync(filePath, JSON.stringify(agent, null, 2), 'utf8');
+		} catch (error) {
+			console.error(`Error saving agent ${agent.id}:`, error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get a team by ID
+	 * @param teamId ID of the team
+	 * @returns Team or null if not found
+	 */
+	public async getTeam(teamId: string): Promise<Team | null> {
+		try {
+			const teamsDir = path.join(this.storageDir, STORAGE_PATHS.TEAMS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(teamsDir)) {
+				fs.mkdirSync(teamsDir, { recursive: true });
+				return null;
+			}
+			
+			const filePath = path.join(teamsDir, `${teamId}.json`);
+
+			if (!fs.existsSync(filePath)) {
+				return null;
+			}
+
+			const content = fs.readFileSync(filePath, 'utf8');
+			return JSON.parse(content) as Team;
+		} catch (error) {
+			console.error(`Error getting team ${teamId}:`, error);
+			return null;
+		}
+	}
+
+	/**
+	 * Save a team
+	 * @param team Team to save
+	 */
+	public async saveTeam(team: Team): Promise<void> {
+		try {
+			const teamsDir = path.join(this.storageDir, STORAGE_PATHS.TEAMS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(teamsDir)) {
+				fs.mkdirSync(teamsDir, { recursive: true });
+			}
+			
+			const filePath = path.join(teamsDir, `${team.id}.json`);
+			fs.writeFileSync(filePath, JSON.stringify(team, null, 2), 'utf8');
+		} catch (error) {
+			console.error(`Error saving team ${team.id}:`, error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get active project
+	 * @returns Project or null if not found
+	 */
+	public async getActiveProject(): Promise<Project | null> {
+		try {
+			const projectsDir = path.join(this.storageDir, STORAGE_PATHS.PROJECTS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(projectsDir)) {
+				fs.mkdirSync(projectsDir, { recursive: true });
+				return null;
+			}
+			
+			// Look for active.json which stores the ID of the active project
+			const activePath = path.join(projectsDir, 'active.json');
+			
+			if (!fs.existsSync(activePath)) {
+				return null;
+			}
+			
+			const activeContent = fs.readFileSync(activePath, 'utf8');
+			const { activeProjectId } = JSON.parse(activeContent);
+			
+			if (!activeProjectId) {
+				return null;
+			}
+			
+			// Load the actual project
+			const projectPath = path.join(projectsDir, `${activeProjectId}.json`);
+			
+			if (!fs.existsSync(projectPath)) {
+				return null;
+			}
+			
+			const content = fs.readFileSync(projectPath, 'utf8');
+			return JSON.parse(content) as Project;
+		} catch (error) {
+			console.error('Error getting active project:', error);
+			return null;
+		}
+	}
+
+	/**
+	 * Save a project
+	 * @param project Project to save
+	 * @param setActive Whether to set this as the active project
+	 */
+	public async saveProject(project: Project, setActive: boolean = true): Promise<void> {
+		try {
+			const projectsDir = path.join(this.storageDir, STORAGE_PATHS.PROJECTS);
+			
+			// Create directory if it doesn't exist yet
+			if (!fs.existsSync(projectsDir)) {
+				fs.mkdirSync(projectsDir, { recursive: true });
+			}
+			
+			// Save the project
+			const projectPath = path.join(projectsDir, `${project.id}.json`);
+			fs.writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8');
+			
+			// Set as active if requested
+			if (setActive) {
+				const activePath = path.join(projectsDir, 'active.json');
+				fs.writeFileSync(activePath, JSON.stringify({ activeProjectId: project.id }), 'utf8');
+			}
+		} catch (error) {
+			console.error(`Error saving project ${project.id}:`, error);
 			throw error;
 		}
 	}

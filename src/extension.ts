@@ -110,1526 +110,997 @@ interface AgentMessagePayload {
     is_initialization?: boolean;
 }
 
-let lsClient: LanguageClient | undefined;
-export const activate = errorWrapper(
-    async (context: vscode.ExtensionContext): Promise<void> => {
-        console.log('Activating Tribe extension');
+// Global variables and types
+let client: LanguageClient | null = null;
+let outputChannel: vscode.OutputChannel;
+let serverReady = false;
+let startupPromise: Promise<boolean> | null = null;
 
-        try {
-            // Initialize error handler
-            const errorHandler = ExtensionErrorHandler.getInstance();
-            errorHandler.addErrorListener((error) => {
-                vscode.window.showErrorMessage(`[${error.code}] ${error.message}`);
-            });
+// Tracks server initialization status
+enum ServerStatus {
+    NotStarted,
+    Starting,
+    Running,
+    Error
+}
 
-            // Initialize storage service
-            const storageService = StorageService.getInstance(context);
+let serverStatus = ServerStatus.NotStarted;
 
-            // Initialize new services
-            NewStorageService.getInstance(context);
-            DiffService.getInstance();
+// Load environment variables from .env files
+function loadEnvFile(filePath: string): Record<string, string> {
+    const env: Record<string, string> = {};
+    try {
+        const fs = require('fs');
+        if (fs.existsSync(filePath)) {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const lines = content.split('\n');
+            
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine && !trimmedLine.startsWith('#')) {
+                    const parts = trimmedLine.split('=');
+                    if (parts.length >= 2) {
+                        const key = parts[0].trim();
+                        const value = parts.slice(1).join('=').trim();
+                        env[key] = value;
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        // Silently fail - we'll log this at the calling point
+    }
+    return env;
+}
 
-            // Register command handlers
-            registerChangeCommands(context);
-            registerCheckpointCommands(context);
-            registerAnnotationCommands(context);
-            registerImplementationCommands(context);
-            registerConflictCommands(context);
-            registerHistoryCommands(context);
-
-            // Create output channel for Tribe commands
-            const outputChannel = vscode.window.createOutputChannel('Tribe');
-            context.subscriptions.push(outputChannel);
-
-            // Register Enhanced Genesis Agent commands
-            context.subscriptions.push(
-                vscode.commands.registerCommand('tribe.initialize', async () => {
-                    await initializeAgent(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.analyzeProject', async () => {
-                    await analyzeProject(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.executeWorkflow', async () => {
-                    await executeWorkflow(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.captureExperience', async () => {
-                    await captureExperience(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.extractPatterns', async () => {
-                    await extractPatterns(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.collectFeedback', async () => {
-                    await collectFeedback(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.analyzeFeedback', async () => {
-                    await analyzeFeedback(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.createReflection', async () => {
-                    await createReflection(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.extractInsights', async () => {
-                    await extractInsights(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.createImprovementPlan', async () => {
-                    await createImprovementPlan(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.generateOptimizedPrompt', async () => {
-                    await generateOptimizedPrompt(outputChannel);
-                }),
-                vscode.commands.registerCommand('tribe.queryModel', async () => {
-                    await queryModel(outputChannel);
-                }),
-            );
-
-            // Use bundled Python environment
-            const extensionPath = context.extensionPath;
-            const pythonPath = vscode.Uri.joinPath(vscode.Uri.file(extensionPath), 'venv', 'bin', 'python').fsPath;
-            traceLog(`Using Python interpreter: ${pythonPath}`);
-
-            // This is required to get server name and module. This should be
-            // the first thing that we do in this extension.
+export function activate(context: vscode.ExtensionContext) {
+    // Create an output channel
+    outputChannel = vscode.window.createOutputChannel('Tribe');
+    context.subscriptions.push(outputChannel);
+    
+    outputChannel.appendLine('Tribe extension activating...');
+    
+    // Try to load API key from multiple sources
+    try {
+        // 1. Try from settings first (highest priority)
+        const apiKey = vscode.workspace.getConfiguration().get('tribe.apiKey');
+        if (apiKey && typeof apiKey === 'string' && apiKey.trim() !== '') {
+            // Check if it's not a placeholder
+            const isPlaceholder = apiKey.toLowerCase().includes('your-api-key') || 
+                                 apiKey.toLowerCase().includes('your_api_key') ||
+                                 apiKey === 'api-key';
+            
+            if (!isPlaceholder) {
+                outputChannel.appendLine('Found API key in settings, setting environment variable');
+                process.env.ANTHROPIC_API_KEY = apiKey;
+            } else {
+                outputChannel.appendLine('Found placeholder API key in settings, ignoring');
+            }
+        } else {
+            outputChannel.appendLine('No API key found in settings, checking .env files');
+            
+            // 2. Try from .env files
+            const path = require('path');
+            const envPaths = [
+                path.join(context.extensionPath, '.env'),
+                path.join(context.extensionPath, 'tribe', '.env')
+            ];
+            
+            for (const envPath of envPaths) {
+                const envVars = loadEnvFile(envPath);
+                if (envVars.ANTHROPIC_API_KEY) {
+                    // Check if it's not a placeholder
+                    const envApiKey = envVars.ANTHROPIC_API_KEY;
+                    const isPlaceholder = envApiKey.toLowerCase().includes('your-api-key') || 
+                                         envApiKey.toLowerCase().includes('your_api_key') ||
+                                         envApiKey === 'api-key';
+                    
+                    if (!isPlaceholder) {
+                        outputChannel.appendLine(`Found API key in ${envPath}, setting environment variable`);
+                        process.env.ANTHROPIC_API_KEY = envApiKey;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Log API key status (without revealing it)
+        if (process.env.ANTHROPIC_API_KEY) {
+            const key = process.env.ANTHROPIC_API_KEY;
+            if (key.length > 8) {
+                outputChannel.appendLine(`API key is set: ${key.substring(0, 4)}...${key.substring(key.length - 4)}`);
+            } else {
+                outputChannel.appendLine('API key is set (short key)');
+            }
+        } else {
+            outputChannel.appendLine('API key is NOT set after checking all sources');
+        }
+    } catch (err) {
+        outputChannel.appendLine(`Error loading API key: ${err}`);
+    }
+    
+    // Register the getAgents command for the UI
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tribe.getAgents', async () => {
             try {
-                const serverInfo = loadServerDefaults();
-                const serverName = serverInfo.name;
-                const serverId = serverInfo.module;
-
-                // Setup logging
-                const outputChannel = createOutputChannel(serverName);
-                context.subscriptions.push(outputChannel, registerLogger(outputChannel));
-
-                const changeLogLevel = async (c: vscode.LogLevel, g: vscode.LogLevel) => {
-                    const level = getLSClientTraceLevel(c, g);
-                    if (lsClient) {
-                        // In vscode-languageclient v7.0.0, we need to use the outputChannel directly
-                        // as setTrace is not available
-                        lsClient.outputChannel.appendLine(`Setting trace level to: ${Trace[level]}`);
-                        const client = lsClient as any;
-                        if (client._tracer) {
-                            client._tracer.trace = level;
+                // Import storage service
+                const { StorageService } = require('./services/storageService');
+                
+                // Get service instance
+                const storageService = StorageService.getInstance(context);
+                
+                // Get agents from storage
+                const agents = await storageService.getAgents();
+                
+                outputChannel.appendLine(`Loaded ${agents.length} agents from persistence layer`);
+                
+                if (agents.length > 0) {
+                    return agents;
+                } else {
+                    // Return empty array if no agents found
+                    return [];
+                }
+            } catch (error) {
+                outputChannel.appendLine(`Error getting agents: ${error}`);
+                return [];
+            }
+        }),
+        vscode.commands.registerCommand('tribe.initializeProject', async (payload) => {
+            // Return a simple success response for now
+            outputChannel.appendLine(`Project initialized with payload: ${JSON.stringify(payload)}`);
+            return {
+                id: `project-${Date.now()}`,
+                initialized: true,
+                status: 'active'
+            };
+        }),
+        
+        vscode.commands.registerCommand('tribe.getActiveProject', async () => {
+            try {
+                // Import storage service
+                const { StorageService } = require('./services/storageService');
+                
+                // Get service instance
+                const storageService = StorageService.getInstance(context);
+                
+                // Get active project
+                const activeProject = await storageService.getActiveProject();
+                
+                if (activeProject) {
+                    outputChannel.appendLine(`Loaded active project: ${activeProject.id}`);
+                    return activeProject;
+                } else {
+                    outputChannel.appendLine('No active project found');
+                    return null;
+                }
+            } catch (error) {
+                outputChannel.appendLine(`Error loading active project: ${error}`);
+                return null;
+            }
+        }),
+        
+        vscode.commands.registerCommand('tribe.resetStorage', async () => {
+            try {
+                // Import storage service
+                const { StorageService } = require('./services/storageService');
+                const { STORAGE_PATHS, getStorageDirectory } = require('./config');
+                const path = require('path');
+                const fs = require('fs');
+                
+                outputChannel.appendLine("Resetting all Tribe storage...");
+                
+                // Get the storage directory
+                const storageDir = getStorageDirectory();
+                
+                if (fs.existsSync(storageDir)) {
+                    outputChannel.appendLine(`Removing storage directory: ${storageDir}`);
+                    
+                    // Delete everything in the directory but not the directory itself
+                    const subdirs = [
+                        STORAGE_PATHS.CHANGE_GROUPS,
+                        STORAGE_PATHS.CHECKPOINTS,
+                        STORAGE_PATHS.ANNOTATIONS,
+                        STORAGE_PATHS.IMPLEMENTATIONS,
+                        STORAGE_PATHS.CONFLICTS,
+                        STORAGE_PATHS.HISTORY,
+                        STORAGE_PATHS.AGENTS,
+                        STORAGE_PATHS.TEAMS,
+                        STORAGE_PATHS.PROJECTS,
+                    ];
+                    
+                    // Delete each subdirectory
+                    for (const subdir of subdirs) {
+                        const fullPath = path.join(storageDir, subdir);
+                        if (fs.existsSync(fullPath)) {
+                            try {
+                                outputChannel.appendLine(`Removing: ${fullPath}`);
+                                fs.rmSync(fullPath, { recursive: true, force: true });
+                            } catch (err) {
+                                outputChannel.appendLine(`Error deleting ${fullPath}: ${err}`);
+                            }
                         }
                     }
+                    
+                    outputChannel.appendLine("Storage reset successfully");
+                    return true;
+                } else {
+                    outputChannel.appendLine(`Storage directory doesn't exist: ${storageDir}`);
+                    return true; // Already clean
+                }
+            } catch (error) {
+                outputChannel.appendLine(`Error resetting storage: ${error}`);
+                return false;
+            }
+        }),
+        
+        vscode.commands.registerCommand('tribe.saveTeamData', async (data) => {
+            try {
+                const { team, agents } = data;
+                
+                if (!team || !agents) {
+                    outputChannel.appendLine('Invalid team data provided');
+                    return false;
+                }
+                
+                // Import storage service
+                const { StorageService } = require('./services/storageService');
+                
+                // Get service instance
+                const storageService = StorageService.getInstance(context);
+                
+                // Save the team
+                await storageService.saveTeam(team);
+                outputChannel.appendLine(`Saved team with ID: ${team.id}`);
+                
+                // Save each agent
+                for (const agent of agents) {
+                    await storageService.saveAgent(agent);
+                }
+                outputChannel.appendLine(`Saved ${agents.length} agents to persistence layer`);
+                
+                // Create and save project
+                const now = new Date().toISOString();
+                const project = {
+                    id: `project-${Date.now()}`,
+                    name: "Project",
+                    description: team.description || "Development Project",
+                    initialized: true,
+                    team: team,
+                    created_at: now,
+                    updated_at: now
                 };
+                
+                await storageService.saveProject(project, true);
+                outputChannel.appendLine(`Saved project with ID: ${project.id}`);
+                
+                return true;
+            } catch (error) {
+                outputChannel.appendLine(`Error saving team data: ${error}`);
+                return false;
+            }
+        })
+    );
 
-                vscode.debug.onDidChangeActiveDebugSession(async (e) => {
-                    const workspaceFolders = vscode.workspace.workspaceFolders || [];
-                    for (const wsFolder of workspaceFolders) {
-                        if (e?.configuration.cwd === wsFolder.uri.fsPath) {
-                            try {
-                                if (lsClient) {
-                                    lsClient.sendNotification('debug/refresh');
-                                }
-                            } catch (err) {
-                                traceError(`Failed to get server options: ${err}`);
-                            }
-                            break;
+    // Initialize the crew panel provider
+    try {
+        // Import provider from webview - workaround for circular dependencies
+        const { CrewPanelProvider } = require('../webview/src/panels/crew_panel/CrewPanelProvider');
+        
+        // Register webview panel provider
+        const crewPanelProvider = new CrewPanelProvider(context.extensionUri);
+        context.subscriptions.push(
+            vscode.window.registerWebviewViewProvider('tribe.crewPanel', crewPanelProvider)
+        );
+        
+        outputChannel.appendLine('Registered crew panel provider');
+    } catch (err) {
+        outputChannel.appendLine(`Error initializing webview: ${err}`);
+        // Continue without webview if it fails
+    }
+    
+    // Don't start the server automatically, wait for user to explicitly request it
+    // This helps prevent the "write after end" errors during VSCode restart
+    serverStatus = ServerStatus.NotStarted;
+    outputChannel.appendLine('Server will be started on first command...');
+    
+    /**
+     * Creates a fallback team when the server is not available
+     * @param description The team description
+     * @returns A mock team that can be used as fallback
+     */
+    function createFallbackTeam(description: string) {
+        outputChannel.appendLine('Creating fallback team with static members');
+        const now = Date.now();
+        return {
+            project: {
+                id: `project-fallback-${now}`,
+                name: "Project",
+                description: description,
+                initialized: true,
+                team: {
+                    id: `team-fallback-${now + 1}`,
+                    name: "Team",
+                    description: `Team for ${description}`,
+                    agents: [
+                        {
+                            id: "0",
+                            role: "Lead Developer",
+                            name: "Alex",
+                            description: "Experienced software engineer with 10+ years of focus on architecture and system design.",
+                            short_description: "Senior developer with expertise in system architecture",
+                            backstory: "Experienced software engineer with 10+ years of focus on architecture and system design.",
+                            status: "active",
+                            initialization_complete: true,
+                            tools: []
+                        },
+                        {
+                            id: "1",
+                            role: "Front-end Developer",
+                            name: "Taylor",
+                            description: "UI/UX specialist with 5 years of experience in modern frontend frameworks.",
+                            short_description: "Frontend specialist with UI/UX expertise",
+                            backstory: "UI/UX specialist with 5 years of experience in modern frontend frameworks.",
+                            status: "active",
+                            initialization_complete: true,
+                            tools: []
+                        },
+                        {
+                            id: "2",
+                            role: "QA Engineer",
+                            name: "Jordan",
+                            description: "Testing expert with automation skills and experience with CI/CD pipelines.",
+                            short_description: "QA specialist with automation expertise",
+                            backstory: "Testing expert with automation skills and experience with CI/CD pipelines.",
+                            status: "active",
+                            initialization_complete: true,
+                            tools: []
                         }
+                    ]
+                }
+            }
+        };
+    }
+
+    // Create a function to ensure the server is ready with a timeout
+    async function ensureServerReady(): Promise<boolean> {
+        outputChannel.appendLine(`[DEBUG] ensureServerReady called. Current status: ${ServerStatus[serverStatus]}`);
+        
+        // If server is already running, return immediately
+        if (serverStatus === ServerStatus.Running && client) {
+            outputChannel.appendLine('[DEBUG] Server already running, returning immediately');
+            return true;
+        }
+        
+        // If already starting, wait for existing promise
+        if (serverStatus === ServerStatus.Starting && startupPromise) {
+            outputChannel.appendLine('[DEBUG] Server already starting, waiting for existing promise');
+            return startupPromise;
+        }
+        
+        // Start a new server initialization
+        serverStatus = ServerStatus.Starting;
+        outputChannel.appendLine('Starting server initialization...');
+        
+        // Add overall timeout for starting server (30 seconds)
+        const timeout = setTimeout(() => {
+            outputChannel.appendLine('[DEBUG] Server initialization timed out');
+            serverStatus = ServerStatus.Error;
+            startupPromise = Promise.resolve(false);
+        }, 30000);
+        
+        // Create a new promise for this initialization
+        startupPromise = new Promise<boolean>(async (resolve) => {
+            try {
+                outputChannel.appendLine('[DEBUG] Inside startupPromise');
+                
+                // Clean up any existing client
+                if (client) {
+                    try {
+                        outputChannel.appendLine('Stopping existing client...');
+                        await client.stop().catch(e => {
+                            outputChannel.appendLine(`Expected error stopping client: ${e}`);
+                        });
+                        client = null;
+                    } catch (e) {
+                        outputChannel.appendLine(`Error stopping client (handled): ${e}`);
+                        client = null;
+                    }
+                }
+                
+                // Wait a moment for resources to be freed
+                outputChannel.appendLine('[DEBUG] Waiting for resources to be freed');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Check what Python path we're using
+                try {
+                    outputChannel.appendLine('[DEBUG] Checking Python version...');
+                    const pythonVersionResult = await execAsync('python --version')
+                        .then(result => result.stdout.trim())
+                        .catch(err => {
+                            outputChannel.appendLine(`[DEBUG] Error checking Python version: ${err}`);
+                            return "Unknown";
+                        });
+                    
+                    outputChannel.appendLine(`[DEBUG] Python version: ${pythonVersionResult}`);
+                } catch (err) {
+                    outputChannel.appendLine(`[DEBUG] Error during Python version check: ${err}`);
+                }
+                
+                // Create new client with debug tracing
+                outputChannel.appendLine('[DEBUG] Creating new client...');
+                
+                // Add the extension path to PYTHONPATH to help with imports
+                const extensionPath = context.extensionPath;
+                const pythonPathAdditions = [
+                    extensionPath, 
+                    `${extensionPath}/tribe`,
+                    `${extensionPath}/bundled/tool`,
+                    `${extensionPath}/bundled/libs`,
+                ];
+                
+                // Create PYTHONPATH with the extension paths (using correct path separator for platform)
+                const pathSeparator = process.platform === 'win32' ? ';' : ':';
+                const pythonPath = pythonPathAdditions.join(pathSeparator) + 
+                    (process.env.PYTHONPATH ? pathSeparator + process.env.PYTHONPATH : '');
+                
+                // Just log the API key status - we've already loaded it from .env files 
+                if (process.env.ANTHROPIC_API_KEY) {
+                    const key = process.env.ANTHROPIC_API_KEY;
+                    const isPlaceholder = key.toLowerCase().includes('your-api-key') || 
+                                         key.toLowerCase().includes('your_api_key') ||
+                                         key === 'api-key';
+                    
+                    if (isPlaceholder) {
+                        outputChannel.appendLine('[WARNING] ANTHROPIC_API_KEY contains placeholder value');
+                        vscode.window.showWarningMessage('Anthropic API key appears to be a placeholder. Team creation will use mock data.', 'Learn More')
+                            .then(selection => {
+                                if (selection === 'Learn More') {
+                                    vscode.env.openExternal(vscode.Uri.parse('https://docs.anthropic.com/claude/reference/getting-started-with-the-api'));
+                                }
+                            });
+                    } else {
+                        outputChannel.appendLine(`[DEBUG] API key found and properly set: ${key.substring(0, 4)}...${key.substring(key.length - 4)}`);
+                    }
+                } else {
+                    outputChannel.appendLine('[WARNING] ANTHROPIC_API_KEY not set');
+                    vscode.window.showWarningMessage('Anthropic API key not set. Team creation will use mock data.', 'Set API Key')
+                        .then(selection => {
+                            if (selection === 'Set API Key') {
+                                vscode.commands.executeCommand('tribe.setApiKey');
+                            }
+                        });
+                }
+                
+                // Set timeout to 60 seconds
+                const serverOptions: ServerOptions = {
+                    run: {
+                        command: 'python',
+                        args: ['-m', 'tribe'],
+                        options: {
+                            env: {
+                                ...process.env,  // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
+                                TRIBE_MODEL: API_ENDPOINTS.MODEL,
+                                TRIBE_DEBUG: 'false', // Disable debug mode to use real model
+                                PYTHONPATH: pythonPath,
+                                LS_SHOW_NOTIFICATION: 'always', // Show all LSP notifications
+                                PYTHONUNBUFFERED: '1', // Unbuffered output
+                                PYTHONIOENCODING: 'utf-8', // Force UTF-8 
+                            },
+                        },
+                        transport: TransportKind.stdio
+                    },
+                    debug: {
+                        command: 'python',
+                        args: ['-m', 'tribe', '--debug'],
+                        options: {
+                            env: {
+                                ...process.env,  // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
+                                TRIBE_MODEL: API_ENDPOINTS.MODEL,
+                                TRIBE_DEBUG: 'false', // Disable debug mode to use real model
+                                PYTHONPATH: pythonPath,
+                                LS_SHOW_NOTIFICATION: 'always', // Show all LSP notifications
+                                PYTHONUNBUFFERED: '1', // Unbuffered output
+                                PYTHONIOENCODING: 'utf-8', // Force UTF-8 
+                            },
+                        },
+                        transport: TransportKind.stdio
+                    }
+                };
+                
+                outputChannel.appendLine(`[DEBUG] PYTHONPATH: ${pythonPath}`);
+                
+                // Create client with proper parameter order: id, name, serverOptions, clientOptions
+                client = new LanguageClient(
+                    'tribe', // id
+                    'Tribe Language Server', // name 
+                    serverOptions, // serverOptions
+                    {  // clientOptions
+                        documentSelector: [{ scheme: 'file', language: '*' }],
+                        synchronize: {
+                            configurationSection: 'tribe',
+                        },
+                        outputChannel: outputChannel,
+                        traceOutputChannel: outputChannel,
+                        revealOutputChannelOn: 4, // Show output on error and for all LSP messages
+                        initializationOptions: {
+                            debug: true,  // Pass debug flag to server
+                            timeout: 60000 // 60 second timeout
+                        }
+                    }
+                );
+                
+                // Set error handler
+                client.onDidChangeState((e) => {
+                    outputChannel.appendLine(`[DEBUG] Client state changed: ${e.oldState} -> ${e.newState}`);
+                });
+                
+                // Start the client
+                outputChannel.appendLine('[DEBUG] Starting client...');
+                try {
+                    await client.start();
+                    outputChannel.appendLine('[DEBUG] Client.start() completed');
+                } catch (e) {
+                    outputChannel.appendLine(`[DEBUG] Error in client.start(): ${e}`);
+                    throw e;
+                }
+                
+                // Wait for client to be in running state
+                outputChannel.appendLine('[DEBUG] Waiting for client to enter running state...');
+                // Increase timeout to 30 seconds (30 attempts with 1 second delay)
+                for (let i = 0; i < 30; i++) {
+                    if (!client) {
+                        outputChannel.appendLine('[DEBUG] Client unexpectedly became null');
+                        throw new Error('Client unexpectedly became null');
+                    }
+                    
+                    const state = client["_state"];
+                    outputChannel.appendLine(`[DEBUG] Client state check ${i+1}/30: ${state}`);
+                    
+                    if (state === State.Running) {
+                        outputChannel.appendLine('[DEBUG] Client is in running state!');
+                        serverStatus = ServerStatus.Running;
+                        clearTimeout(timeout);
+                        return resolve(true);
+                    }
+                    
+                    // Check if we're at state 3 (Starting) for a long time
+                    // State 1: Created, 2: Starting, 3: Running, 4: Stopped
+                    if (state === 3 && i > 5) {
+                        // If we're in state 3 for more than 5 seconds, consider it running
+                        outputChannel.appendLine('[DEBUG] Client is in state 3 (Starting) for more than 5 seconds, considering it running');
+                        serverStatus = ServerStatus.Running;
+                        clearTimeout(timeout);
+                        return resolve(true);
+                    }
+                    
+                    // Wait before checking again
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+                // If we get here, server didn't start properly
+                outputChannel.appendLine('[DEBUG] Server did not enter running state in time');
+                serverStatus = ServerStatus.Error;
+                clearTimeout(timeout);
+                resolve(false);
+            } catch (err) {
+                outputChannel.appendLine(`[DEBUG] Error starting server: ${err}`);
+                
+                if (client) {
+                    try {
+                        // Try to clean up
+                        outputChannel.appendLine('[DEBUG] Trying to clean up client after error');
+                        await client.stop().catch(e => {
+                            outputChannel.appendLine(`[DEBUG] Error during cleanup: ${e}`);
+                        });
+                    } catch (e) {
+                        outputChannel.appendLine(`[DEBUG] Exception during cleanup: ${e}`);
+                    }
+                    client = null;
+                }
+                
+                serverStatus = ServerStatus.Error;
+                clearTimeout(timeout);
+                resolve(false);
+            }
+        });
+        
+        return startupPromise;
+    }
+
+    // Add a command to set the API key
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tribe.setApiKey', async () => {
+            const apiKey = await vscode.window.showInputBox({
+                prompt: 'Enter your Anthropic API key',
+                password: true,
+                placeHolder: 'sk-...',
+                ignoreFocusOut: true,
+                validateInput: (value) => {
+                    if (!value) {
+                        return 'API key is required';
+                    }
+                    if (value.toLowerCase().includes('your-api-key') || 
+                        value.toLowerCase().includes('your_api_key')) {
+                        return 'Please enter an actual API key, not a placeholder';
+                    }
+                    if (!value.startsWith('sk-')) {
+                        return 'Anthropic API keys typically start with "sk-"';
+                    }
+                    return null; // Input is valid
+                }
+            });
+            
+            if (apiKey) {
+                // Set the API key in the environment
+                process.env.ANTHROPIC_API_KEY = apiKey;
+                
+                // Restart the server to use the new API key
+                await vscode.commands.executeCommand('tribe.restart');
+                
+                vscode.window.showInformationMessage('API key set successfully! Server restarted.');
+                
+                // Suggest saving the key for future sessions
+                const saveChoice = await vscode.window.showInformationMessage(
+                    'Would you like to save this API key for future sessions?',
+                    'Yes (User Settings)',
+                    'No'
+                );
+                
+                if (saveChoice === 'Yes (User Settings)') {
+                    // Update user settings with the API key
+                    await vscode.workspace.getConfiguration().update(
+                        'tribe.apiKey',
+                        apiKey,
+                        vscode.ConfigurationTarget.Global
+                    );
+                    
+                    vscode.window.showInformationMessage('API key saved to user settings.');
+                }
+            }
+        })
+    );
+    
+    // Register the main commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tribe.restart', async () => {
+            outputChannel.appendLine('Restarting server...');
+            
+            // Force server status to not started to ensure full restart
+            serverStatus = ServerStatus.NotStarted;
+            startupPromise = null;
+            
+            try {
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Restarting Tribe server...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 0, message: "Stopping and restarting server..." });
+                    
+                    const success = await ensureServerReady();
+                    
+                    if (success) {
+                        progress.report({ increment: 100, message: "Server restarted!" });
+                        outputChannel.appendLine('Server restart completed successfully');
+                    } else {
+                        progress.report({ increment: 100, message: "Restart had issues" });
+                        throw new Error("Failed to restart server completely");
                     }
                 });
-
-                // Get current logging level
-                const logLevelConfig = vscode.workspace.getConfiguration('output', null);
-                const currentLogLevel =
-                    (await logLevelConfig.get<string>('level')) === 'debug'
-                        ? vscode.LogLevel.Debug
-                        : vscode.LogLevel.Info;
-
-                // Update log level based on log level configuration changes
-                context.subscriptions.push(
-                    vscode.workspace.onDidChangeConfiguration((e) => {
-                        if (e.affectsConfiguration('output.level')) {
-                            const logLevelConfig = vscode.workspace.getConfiguration('output', null);
-                            const newLogLevel =
-                                logLevelConfig.get<string>('level') === 'debug'
-                                    ? vscode.LogLevel.Debug
-                                    : vscode.LogLevel.Info;
-                            changeLogLevel(newLogLevel, newLogLevel);
-                        }
-                    }),
-                );
-
-                // Register CrewPanel provider
-                const crewPanelProvider = new CrewPanelProvider(context.extensionUri, context);
-                context.subscriptions.push(
-                    vscode.window.registerWebviewViewProvider(CrewPanelProvider.viewType, crewPanelProvider, {
-                        webviewOptions: {
-                            retainContextWhenHidden: true
-                        },
-                    }),
-                );
-
-                // Command to create a new team
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.createTeam',
-                        errorWrapper(
-                            async (teamSpec: Record<string, any>): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage(
-                                        'Please open a workspace folder before creating a team.',
-                                    );
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Create a team with just the VP of Engineering (Genesis agent)
-                                // Other agents will be created dynamically via the VP's lambda calls
-                                const teamResult = {
-                                    success: true,
-                                    team: {
-                                        id: `team-${Date.now()}`,
-                                        name: 'Team ' + (teamSpec.name || 'Untitled'),
-                                        description: teamSpec.description || 'A development team',
-                                        agents: [
-                                            {
-                                                id: `agent-vp-${Date.now()}`,
-                                                name: 'Tank',
-                                                role: 'VP of Engineering',
-                                                status: 'active',
-                                                backstory:
-                                                    'Experienced VP of Engineering with expertise in technical leadership and system architecture. Responsible for bootstrapping the AI agent ecosystem.',
-                                                description:
-                                                    'As the VP of Engineering, Tank oversees all technical aspects of the project, making high-level architectural decisions and coordinating team efforts.',
-                                            },
-                                        ],
-                                    },
-                                };
-                                return teamResult;
-                            },
-                            'CREATE_TEAM_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Create a new team of AI agents',
-                        ),
-                    ),
-                );
-
-                // Command to initialize a project
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.initializeProject',
-                        errorWrapper(
-                            async (config: Record<string, any>): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage(
-                                        'Please open a workspace folder before initializing a project.',
-                                    );
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is already initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (fs.existsSync(configFilePath)) {
-                                    const overwrite = await vscode.window.showWarningMessage(
-                                        'Tribe project already initialized. Overwrite?',
-                                        'Yes',
-                                        'No',
-                                    );
-                                    if (overwrite !== 'Yes') {
-                                        return { success: false, error: 'Project already initialized' };
-                                    }
-                                }
-
-                                try {
-                                    // Show status message while initializing
-                                    const initMessage = vscode.window.setStatusBarMessage(
-                                        'Initializing project and creating team...',
-                                    );
-
-                                    // Create team configuration
-                                    // Initialize environment first
-                                    await vscode.commands.executeCommand('tribe.env.initialize', config);
-
-                                    // Important: Now instead of just returning hardcoded agents, we'll
-                                    // actually initialize the VP of Engineering and generate agents through lambda
-
-                                    // First, create the environment folder
-                                    const tribeFolderPath = path.join(workspaceFolder.uri.fsPath, '.tribe');
-                                    if (!fs.existsSync(tribeFolderPath)) {
-                                        fs.mkdirSync(tribeFolderPath, { recursive: true });
-                                    }
-
-                                    // Create initial team JSON with VP agent
-                                    const teamId = `team-${Date.now()}`;
-                                    const vpAgentId = `agent-vp-${Date.now()}`;
-
-                                    // Call Python to create team using the foundation model
-                                    const outputChannel = vscode.window.createOutputChannel('Tribe-Generation');
-                                    context.subscriptions.push(outputChannel);
-                                    outputChannel.show();
-                                    outputChannel.appendLine(
-                                        'Creating team with dynamic agents from foundation model...',
-                                    );
-                                    const pythonExecutable = process.platform === 'win32' ? 'python' : 'python3';
-
-                                    // Use the project description to generate team
-                                    const projectDescription = config.description || 'A new software project';
-
-                                    // First create the config.json with initial state
-                                    const initialConfig = {
-                                        project: {
-                                            id: `project-${Date.now()}`,
-                                            name: config.name || 'New Project',
-                                            description: projectDescription,
-                                            initialized: true,
-                                            team: {
-                                                id: teamId,
-                                                name: `${config.name || 'New'} Team`,
-                                                description: `Team for ${projectDescription}`,
-                                                agents: [
-                                                    {
-                                                        id: vpAgentId,
-                                                        name: 'Tank',
-                                                        role: 'VP of Engineering',
-                                                        status: 'active',
-                                                        backstory:
-                                                            'Experienced VP of Engineering with expertise in technical leadership and system architecture. Responsible for bootstrapping the AI agent ecosystem.',
-                                                        description:
-                                                            'As the VP of Engineering, Tank oversees all technical aspects of the project, making high-level architectural decisions and coordinating team efforts.',
-                                                    },
-                                                ],
-                                            },
-                                        },
-                                    };
-
-                                    // Write the initial config
-                                    fs.writeFileSync(
-                                        path.join(tribeFolderPath, 'config.json'),
-                                        JSON.stringify(initialConfig, null, 2),
-                                    );
-
-                                    // Clear status message
-                                    initMessage.dispose();
-
-                                    // Create the result we'll return
-                                    const result = {
-                                        success: true,
-                                        project: initialConfig.project,
-                                    };
-
-                                    // Immediately schedule the background task for after we return
-                                    setTimeout(() => {
-                                        // Define an async function to handle the team generation
-                                        const generateTeam = async () => {
-                                            try {
-                                                await vscode.window.withProgress(
-                                                    {
-                                                        location: vscode.ProgressLocation.Notification,
-                                                        title: 'Generating AI team members...',
-                                                        cancellable: false,
-                                                    },
-                                                    async (progress) => {
-                                                        progress.report({
-                                                            increment: 10,
-                                                            message: 'Creating team with VP of Engineering...',
-                                                        });
-
-                                                        try {
-                                                            // Use the Python extension functionality to generate agents
-                                                            const extensionPath = context.extensionPath;
-                                                            const tribePath = path.join(extensionPath, 'tribe');
-
-                                                            // Execute the Python script with proper arguments
-                                                            outputChannel.appendLine(
-                                                                'Running Python script to generate team...',
-                                                            );
-
-                                                            // Create a Python script file instead of using -c to avoid escaping issues
-                                                            const tempScriptContent = `
-import sys
-import os
-import traceback
-import json
-
-# Add extension path to Python path
-sys.path.append('${extensionPath.replace(/\\/g, '\\\\')}')
-
-try:
-    # Import necessary modules
-    from tribe.extension import _create_team_implementation, TribeLanguageServer
-    import asyncio
-    
-    # Create server with proper arguments
-    server = TribeLanguageServer(name="tribe-ls", version="1.0.0")
-    server.workspace_path = '${workspaceFolder.uri.fsPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'
-    
-    # Set the API endpoint explicitly
-    server.ai_api_endpoint = "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/"
-    
-    # Call team creation function
-    project_desc = """${projectDescription.replace(/"/g, '\\"')}"""
-    team_result = asyncio.run(_create_team_implementation(server, {'description': project_desc}))
-    
-    # Print the result as JSON
-    print(json.dumps(team_result))
-    
-except Exception as e:
-    # If there's an error, print a structured error object
-    error_obj = {
-        "error": str(e),
-        "traceback": traceback.format_exc(),
-        "team": {
-            "agents": [
-                {
-                    "id": "fallback-agent-1",
-                    "name": "Spark",
-                    "role": "Developer",
-                    "status": "active",
-                    "backstory": "Created as a fallback when team generation failed.",
-                    "description": "A developer created when the foundation model team generation failed."
+                
+                vscode.window.showInformationMessage('Tribe server restarted successfully.');
+            } catch (err) {
+                outputChannel.appendLine(`Error restarting server: ${err}`);
+                vscode.window.showErrorMessage(`Error restarting server: ${err}`);
+            }
+        }),
+        
+        vscode.commands.registerCommand('tribe.createTeam', async (description = 'New development team') => {
+            // Ensure description is a string and handle potential object parameters
+            if (typeof description === 'object') {
+                if (description && description.hasOwnProperty('description') && typeof description.description === 'string') {
+                    // Extract description from object if possible
+                    description = description.description;
+                } else {
+                    // Fall back to default if we get an object without a description property
+                    description = 'New development team';
                 }
-            ]
-        }
-    }
-    print(json.dumps(error_obj))
-`;
-
-                                                            // Write the script to a temporary file
-                                                            const tempScriptPath = path.join(
-                                                                extensionPath,
-                                                                'temp_team_script.py',
-                                                            );
-                                                            fs.writeFileSync(tempScriptPath, tempScriptContent);
-
-                                                            try {
-                                                                // Execute the Python script from the file
-                                                                outputChannel.appendLine(
-                                                                    `Executing: ${pythonExecutable} ${tempScriptPath}`,
-                                                                );
-                                                                const { stdout, stderr } = await execAsync(
-                                                                    `${pythonExecutable} ${tempScriptPath}`,
-                                                                    { cwd: extensionPath },
-                                                                );
-
-                                                                // Delete the temporary script
-                                                                fs.unlinkSync(tempScriptPath);
-
-                                                                progress.report({
-                                                                    increment: 50,
-                                                                    message: 'Analyzing team generation results...',
-                                                                });
-
-                                                                // Parse the result
-                                                                if (stdout) {
-                                                                    try {
-                                                                        const teamData = JSON.parse(stdout);
-
-                                                                        // Check if we have agents in the response
-                                                                        if (
-                                                                            teamData &&
-                                                                            teamData.team &&
-                                                                            teamData.team.agents &&
-                                                                            teamData.team.agents.length > 0
-                                                                        ) {
-                                                                            // Update config with new agents
-                                                                            const config = JSON.parse(
-                                                                                fs.readFileSync(
-                                                                                    path.join(
-                                                                                        tribeFolderPath,
-                                                                                        'config.json',
-                                                                                    ),
-                                                                                    'utf8',
-                                                                                ),
-                                                                            );
-
-                                                                            // Merge the VP with other generated agents
-                                                                            const vpAgent =
-                                                                                config.project.team.agents[0];
-                                                                            config.project.team.agents = [
-                                                                                vpAgent,
-                                                                                ...teamData.team.agents.filter(
-                                                                                    (a: any) =>
-                                                                                        a.role !== 'VP of Engineering',
-                                                                                ),
-                                                                            ];
-
-                                                                            // Write updated config
-                                                                            fs.writeFileSync(
-                                                                                path.join(
-                                                                                    tribeFolderPath,
-                                                                                    'config.json',
-                                                                                ),
-                                                                                JSON.stringify(config, null, 2),
-                                                                            );
-
-                                                                            // Update UI with the new agents
-                                                                            try {
-                                                                                // Notify that agents have changed
-                                                                                vscode.commands.executeCommand(
-                                                                                    'tribe.refreshAgents',
-                                                                                    config.project.team.agents,
-                                                                                );
-
-                                                                                // Also try to update the crew panel if it's visible
-                                                                                // The panel has its own internal variable _view which may not be
-                                                                                // accessible via TypeScript but is documented in the class above
-                                                                                if (crewPanelProvider) {
-                                                                                    // Using any to bypass TypeScript checking
-                                                                                    const provider =
-                                                                                        crewPanelProvider as any;
-                                                                                    if (
-                                                                                        provider._view &&
-                                                                                        provider._view.webview
-                                                                                    ) {
-                                                                                        provider._view.webview.postMessage(
-                                                                                            {
-                                                                                                type: 'AGENTS_LOADED',
-                                                                                                payload:
-                                                                                                    config.project.team
-                                                                                                        .agents,
-                                                                                            },
-                                                                                        );
-                                                                                    }
-                                                                                }
-                                                                            } catch (uiError) {
-                                                                                outputChannel.appendLine(
-                                                                                    `Error updating UI: ${uiError}`,
-                                                                                );
-                                                                            }
-
-                                                                            progress.report({
-                                                                                increment: 40,
-                                                                                message: `Created ${config.project.team.agents.length} agent(s)`,
-                                                                            });
-                                                                        } else {
-                                                                            outputChannel.appendLine(
-                                                                                'No agents returned from team creation',
-                                                                            );
-                                                                        }
-                                                                    } catch (parseError) {
-                                                                        outputChannel.appendLine(
-                                                                            `Error parsing team data: ${parseError}`,
-                                                                        );
-                                                                        outputChannel.appendLine(
-                                                                            `Raw output: ${stdout}`,
-                                                                        );
-                                                                    }
-                                                                }
-
-                                                                if (stderr) {
-                                                                    outputChannel.appendLine(
-                                                                        `Python stderr: ${stderr}`,
-                                                                    );
-                                                                }
-                                                            } catch (error) {
-                                                                outputChannel.appendLine(
-                                                                    `Error creating dynamic team: ${error}`,
-                                                                );
-                                                            }
-                                                        } catch (error) {
-                                                            outputChannel.appendLine(
-                                                                `Error in progress execution: ${error instanceof Error ? error.message : String(error)}`,
-                                                            );
-                                                        }
-                                                    },
-                                                );
-                                            } catch (err) {
-                                                outputChannel.appendLine(
-                                                    `Error running team generation: ${err instanceof Error ? err.message : String(err)}`,
-                                                );
-                                            }
-                                        };
-
-                                        // Execute the team generation function
-                                        generateTeam();
-                                    }, 100); // slight delay to ensure we return first
-
-                                    return result;
-                                } catch (error) {
-                                    console.error('Error in tribe.initializeProject:', error);
-                                    return {
-                                        success: false,
-                                        error: error instanceof Error ? error.message : String(error),
-                                    };
-                                }
-                            },
-                            'INITIALIZE_PROJECT_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Initialize a new project and create team',
-                        ),
-                    ),
-                );
-
-                // Command to refresh the agents list
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.refreshAgents',
-                        errorWrapper(
-                            async (agents: any[]): Promise<void> => {
-                                console.log('Refreshing agents list with:', agents);
-                                // This command just refreshes the UI with new agents
-                                // No need to return anything
-                            },
-                            'REFRESH_AGENTS_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Refresh agents list',
-                        ),
-                    ),
-                );
-
-                // Command to get list of available agents
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.getAgents',
-                        errorWrapper(
-                            async (): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Return mock data for now
-                                // Now we'll only hardcode the VP of Engineering (Genesis agent)
-                                // Other agents will be created dynamically via the VP's lambda calls
-                                const result = {
-                                    success: true,
-                                    agents: [
-                                        {
-                                            id: `agent-vp-${Date.now()}`,
-                                            name: 'Tank',
-                                            role: 'VP of Engineering',
-                                            status: 'active',
-                                            backstory:
-                                                'Experienced VP of Engineering with expertise in technical leadership and system architecture. Responsible for bootstrapping the AI agent ecosystem.',
-                                            description:
-                                                'As the VP of Engineering, Tank oversees all technical aspects of the project, making high-level architectural decisions and coordinating team efforts.',
-                                        },
-                                    ],
-                                };
-                                return result;
-                            },
-                            'GET_AGENTS_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Get list of available agents',
-                        ),
-                    ),
-                );
-
-                // Command to create a new agent
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.createAgent',
-                        errorWrapper(
-                            async (agentSpec: AgentPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!agentSpec.name || !agentSpec.role) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid agent specification. Name and role are required.',
-                                    };
-                                }
-
-                                // Create agent (mock implementation)
-                                const result = {
-                                    success: true,
-                                    agent: {
-                                        id: `agent-${Date.now()}`,
-                                        name: agentSpec.name,
-                                        role: agentSpec.role,
-                                        backstory:
-                                            agentSpec.backstory ||
-                                            `${agentSpec.name} is a ${agentSpec.role} with expertise in various domains.`,
-                                    },
-                                };
-                                return result;
-                            },
-                            'CREATE_AGENT_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Create new agent',
-                        ),
-                    ),
-                );
-
-                // Command to send message to an agent
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.sendAgentMessage',
-                        errorWrapper(
-                            async (messagePayload: AgentMessagePayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!messagePayload.agentId || !messagePayload.message) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid message payload. agentId and message are required.',
-                                    };
-                                }
-
-                                // Send message to agent
-                                try {
-                                    // Update status in webview
-                                    crewPanelProvider.updateMessageStatus({
-                                        id: `msg-${Date.now()}`,
-                                        agentId: messagePayload.agentId,
-                                        status: 'processing',
-                                        timestamp: new Date().toISOString(),
-                                    });
-
-                                    // Mock implementation
-                                    const result = {
-                                        success: true,
-                                        response: {
-                                            id: `msg-${Date.now()}`,
-                                            from: messagePayload.agentId,
-                                            content: `Mock response to: ${messagePayload.message}`,
-                                            timestamp: new Date().toISOString(),
-                                        },
-                                    };
-
-                                    // Update status in webview
-                                    crewPanelProvider.updateMessageStatus({
-                                        id: `msg-${Date.now()}`,
-                                        agentId: messagePayload.agentId,
-                                        status: 'completed',
-                                        timestamp: new Date().toISOString(),
-                                    });
-
-                                    return result;
-                                } catch (error) {
-                                    // Update status in webview
-                                    crewPanelProvider.updateMessageStatus({
-                                        id: `msg-${Date.now()}`,
-                                        agentId: messagePayload.agentId,
-                                        status: 'failed',
-                                        timestamp: new Date().toISOString(),
-                                        error: error instanceof Error ? error.message : String(error),
-                                    });
-
-                                    throw error;
-                                }
-                            },
-                            'SEND_AGENT_MESSAGE_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Send message to agent',
-                        ),
-                    ),
-                );
-
-                // Command to create a task
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.createTask',
-                        errorWrapper(
-                            async (taskSpec: TaskPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!taskSpec.name || !taskSpec.description || !taskSpec.assignedTo) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid task specification. Name, description, and assignedTo are required.',
-                                    };
-                                }
-
-                                // Create task (mock implementation)
-                                const result = {
-                                    success: true,
-                                    task: {
-                                        id: `task-${Date.now()}`,
-                                        name: taskSpec.name,
-                                        description: taskSpec.description,
-                                        assignedTo: taskSpec.assignedTo,
-                                        status: 'pending',
-                                        createdAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'CREATE_TASK_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Create new task',
-                        ),
-                    ),
-                );
-
-                // Command to record agent feedback
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.recordFeedback',
-                        errorWrapper(
-                            async (feedbackPayload: FeedbackPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Record feedback (mock implementation)
-                                const result = {
-                                    success: true,
-                                    feedback: {
-                                        id: `feedback-${Date.now()}`,
-                                        agentId: feedbackPayload.agentId,
-                                        actionType: feedbackPayload.actionType,
-                                        feedback: feedbackPayload.feedback,
-                                        context: feedbackPayload.context,
-                                        accepted: feedbackPayload.accepted,
-                                        timestamp: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'RECORD_FEEDBACK_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Record agent feedback',
-                        ),
-                    ),
-                );
-
-                // Command to set agent autonomy level
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.setAgentAutonomy',
-                        errorWrapper(
-                            async (autonomyPayload: AutonomyPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (
-                                    !autonomyPayload.agentId ||
-                                    !autonomyPayload.taskType ||
-                                    autonomyPayload.autonomyLevel < 0 ||
-                                    autonomyPayload.autonomyLevel > 5
-                                ) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid autonomy payload. agentId, taskType, and autonomyLevel (0-5) are required.',
-                                    };
-                                }
-
-                                // Set agent autonomy (mock implementation)
-                                const result = {
-                                    success: true,
-                                    autonomy: {
-                                        agentId: autonomyPayload.agentId,
-                                        taskType: autonomyPayload.taskType,
-                                        autonomyLevel: autonomyPayload.autonomyLevel,
-                                        supervisionRequirements: autonomyPayload.supervisionRequirements,
-                                        updatedAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'SET_AGENT_AUTONOMY_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Set agent autonomy level',
-                        ),
-                    ),
-                );
-
-                // Command to analyze workflow flows
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.analyzeFlows',
-                        errorWrapper(
-                            async (flowPayload: FlowPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!flowPayload.requirements) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid flow payload. requirements are required.',
-                                    };
-                                }
-
-                                // Analyze workflow flows (mock implementation)
-                                const result = {
-                                    success: true,
-                                    analysis: {
-                                        requirements: flowPayload.requirements,
-                                        context: flowPayload.context,
-                                        recommendedFlows: [
-                                            {
-                                                id: 'flow-1',
-                                                name: 'Sequential Flow',
-                                                description: 'A simple sequential workflow with linear progression.',
-                                                suitabilityScore: 0.8,
-                                            },
-                                            {
-                                                id: 'flow-2',
-                                                name: 'Parallel Flow',
-                                                description: 'A workflow with parallel task execution for efficiency.',
-                                                suitabilityScore: 0.7,
-                                            },
-                                        ],
-                                        timestamp: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'ANALYZE_FLOWS_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Analyze workflow flows',
-                        ),
-                    ),
-                );
-
-                // Command to generate a new workflow flow
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.generateFlow',
-                        errorWrapper(
-                            async (flowPayload: FlowPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!flowPayload.requirements) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid flow payload. requirements are required.',
-                                    };
-                                }
-
-                                // Generate workflow flow (mock implementation)
-                                const result = {
-                                    success: true,
-                                    flow: {
-                                        id: `flow-${Date.now()}`,
-                                        name: 'Generated Flow',
-                                        description: 'Automatically generated workflow flow',
-                                        requirements: flowPayload.requirements,
-                                        context: flowPayload.context,
-                                        steps: [
-                                            {
-                                                id: 'step-1',
-                                                name: 'Design',
-                                                description: 'Design the solution',
-                                                assignee: 'Designer',
-                                                dependencies: [],
-                                            },
-                                            {
-                                                id: 'step-2',
-                                                name: 'Implement',
-                                                description: 'Implement the solution',
-                                                assignee: 'Developer',
-                                                dependencies: ['step-1'],
-                                            },
-                                            {
-                                                id: 'step-3',
-                                                name: 'Test',
-                                                description: 'Test the solution',
-                                                assignee: 'Tester',
-                                                dependencies: ['step-2'],
-                                            },
-                                        ],
-                                        createdAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'GENERATE_FLOW_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Generate new workflow flow',
-                        ),
-                    ),
-                );
-
-                // Command to execute a workflow flow
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.executeFlow',
-                        errorWrapper(
-                            async (flowId: string): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!flowId) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid input. flowId is required.',
-                                    };
-                                }
-
-                                // Execute workflow flow (mock implementation)
-                                const result = {
-                                    success: true,
-                                    execution: {
-                                        id: `exec-${Date.now()}`,
-                                        flowId: flowId,
-                                        status: 'started',
-                                        steps: [
-                                            {
-                                                id: 'step-1',
-                                                status: 'pending',
-                                                startTime: new Date().toISOString(),
-                                            },
-                                        ],
-                                        startTime: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'EXECUTE_FLOW_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Execute workflow flow',
-                        ),
-                    ),
-                );
-
-                // Command to create a new workflow
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.createWorkflow',
-                        errorWrapper(
-                            async (workflowPayload: WorkflowPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (
-                                    !workflowPayload.name ||
-                                    !workflowPayload.description ||
-                                    !workflowPayload.steps ||
-                                    workflowPayload.steps.length === 0
-                                ) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid workflow payload. name, description, and steps are required.',
-                                    };
-                                }
-
-                                // Create workflow (mock implementation)
-                                const result = {
-                                    success: true,
-                                    workflow: {
-                                        id: `workflow-${Date.now()}`,
-                                        name: workflowPayload.name,
-                                        description: workflowPayload.description,
-                                        steps: workflowPayload.steps,
-                                        checkpoints: workflowPayload.checkpoints,
-                                        requiredApprovals: workflowPayload.requiredApprovals,
-                                        createdAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'CREATE_WORKFLOW_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Create new workflow',
-                        ),
-                    ),
-                );
-
-                // Command to generate code based on requirements
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.generateCode',
-                        errorWrapper(
-                            async (codePayload: CodePayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Check if project is initialized
-                                const workspaceFolder = vscode.workspace.workspaceFolders![0];
-                                const configFilePath = path.join(workspaceFolder.uri.fsPath, '.tribe', 'config.json');
-                                if (!fs.existsSync(configFilePath)) {
-                                    vscode.window.showErrorMessage('Please initialize a Tribe project first.');
-                                    return { success: false, error: 'Project not initialized' };
-                                }
-
-                                // Validate input
-                                if (!codePayload.requirements || !codePayload.language || !codePayload.outputFile) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid code payload. requirements, language, and outputFile are required.',
-                                    };
-                                }
-
-                                // Generate code (mock implementation)
-                                const result = {
-                                    success: true,
-                                    code: {
-                                        language: codePayload.language,
-                                        framework: codePayload.framework,
-                                        outputFile: codePayload.outputFile,
-                                        content: `// Generated code for ${codePayload.requirements}\n// Using ${codePayload.language} ${codePayload.framework || ''}\n\n// Sample code\nconsole.log('Hello, world!');`,
-                                        createdAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'GENERATE_CODE_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Generate code based on requirements',
-                        ),
-                    ),
-                );
-
-                // Command to analyze project requirements
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.analyzeRequirements',
-                        errorWrapper(
-                            async (requirementsPayload: RequirementsPayload): Promise<Record<string, any>> => {
-                                // Ensure a workspace folder is open
-                                if (!hasWorkspaceFolder()) {
-                                    vscode.window.showErrorMessage('Please open a workspace folder first.');
-                                    return { success: false, error: 'No workspace folder open' };
-                                }
-
-                                // Validate input
-                                if (!requirementsPayload.requirements) {
-                                    return {
-                                        success: false,
-                                        error: 'Invalid requirements payload. requirements field is required.',
-                                    };
-                                }
-
-                                // Analyze requirements (mock implementation)
-                                const result = {
-                                    success: true,
-                                    analysis: {
-                                        requirements: requirementsPayload.requirements,
-                                        technicalComponents: [
-                                            { name: 'User Authentication', priority: 'high', complexity: 'medium' },
-                                            { name: 'Data Storage', priority: 'high', complexity: 'low' },
-                                            { name: 'API Integration', priority: 'medium', complexity: 'high' },
-                                        ],
-                                        recommendedTechnologies: {
-                                            languages: ['TypeScript', 'Python'],
-                                            frameworks: ['React', 'Flask'],
-                                            databases: ['PostgreSQL'],
-                                        },
-                                        timeline: {
-                                            estimated: '4 weeks',
-                                            breakdown: {
-                                                planning: '1 week',
-                                                development: '2 weeks',
-                                                testing: '1 week',
-                                            },
-                                        },
-                                        createdAt: new Date().toISOString(),
-                                    },
-                                };
-                                return result;
-                            },
-                            'ANALYZE_REQUIREMENTS_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Analyze project requirements',
-                        ),
-                    ),
-                );
-
-                // Initialize the tribe environment
-                context.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        'tribe.env.initialize',
-                        errorWrapper(
-                            async (params?: Record<string, any>): Promise<Record<string, any>> => {
-                                try {
-                                    traceLog('Initializing tribe environment');
-
-                                    // Get the first workspace folder
-                                    if (
-                                        !vscode.workspace.workspaceFolders ||
-                                        vscode.workspace.workspaceFolders.length === 0
-                                    ) {
-                                        return {
-                                            success: false,
-                                            error: 'No workspace folder open',
-                                        };
-                                    }
-
-                                    const workspaceFolder = vscode.workspace.workspaceFolders[0].uri.fsPath;
-                                    traceLog(`Workspace folder: ${workspaceFolder}`);
-
-                                    // For debugging
-                                    outputChannel.appendLine(`Workspace folder: ${workspaceFolder}`);
-
-                                    // Create .tribe folder in workspace root if it doesn't exist
-                                    const tribeFolderPath = path.join(workspaceFolder, '.tribe');
-                                    if (!fs.existsSync(tribeFolderPath)) {
-                                        fs.mkdirSync(tribeFolderPath);
-                                    }
-
-                                    return {
-                                        success: true,
-                                    };
-                                } catch (error) {
-                                    traceError('Failed to initialize tribe environment', error);
-                                    return {
-                                        success: false,
-                                        error: error instanceof Error ? error.message : String(error),
-                                    };
-                                }
-                            },
-                            'INITIALIZE_ENVIRONMENT_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Initialize the tribe environment',
-                        ),
-                    ),
-                );
-
-                const updateMessageStatus = errorWrapper(
-                    async (message: any) => {
-                        crewPanelProvider.updateMessageStatus(message);
-                    },
-                    'UPDATE_MESSAGE_STATUS_FAILED',
-                    ErrorCategory.SYSTEM,
-                    'Update message status in webview',
-                );
-
-                // Create a dedicated function for handling message updates from the language server
-                const handleServerStatusUpdates = async (params: any) => {
+            }
+            
+            outputChannel.appendLine(`Creating team with description: ${description}...`);
+            
+            // Ensure the description is a string
+            if (typeof description !== 'string') {
+                description = 'New development team';
+            }
+            
+            try {
+                // Wait for server to be ready before proceeding
+                const serverInitialized = await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Preparing Tribe server...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 0, message: "Ensuring server is ready..." });
+                    
                     try {
-                        const { type, data } = params;
-
-                        if (type === 'message_status') {
-                            await updateMessageStatus(data);
+                        const ready = await ensureServerReady();
+                        
+                        if (!ready) {
+                            outputChannel.appendLine('Server did not initialize properly, using fallback');
+                            return false;
                         }
+                        
+                        progress.report({ increment: 100, message: "Server ready" });
+                        return true;
                     } catch (error) {
-                        traceError('Failed to handle server status update', error);
+                        outputChannel.appendLine(`Error initializing server: ${error}`);
+                        return false;
+                    }
+                });
+                
+                // If server did not initialize properly, provide a fallback response
+                if (!serverInitialized || !client) {
+                    outputChannel.appendLine('Using fallback for team creation (server not available)');
+                    
+                    vscode.window.showInformationMessage('Creating team in offline mode. Some features might be limited.');
+                    
+                    // Return a fallback team using our helper function
+                    return createFallbackTeam(description);
+                }
+                
+                // Now proceed with team creation via server
+                const result = await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Creating team...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 30, message: "Sending request..." });
+                    
+                    try {
+                        // Add a timeout for the request
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('Request timed out after 45 seconds')), 45000);
+                        });
+                        
+                        if (!client) {
+                            throw new Error("Client unexpectedly became null");
+                        }
+                        
+                        // Race the client request against the timeout
+                        const result = await Promise.race([
+                            client.sendRequest('tribe/createTeam', {
+                                description: description,
+                                team_size: 3,
+                                temperature: 0.7
+                            }),
+                            timeoutPromise
+                        ]);
+                        
+                        // Check that result is properly formatted
+                        if (!result || typeof result !== 'object') {
+                            outputChannel.appendLine(`Invalid response format: ${JSON.stringify(result)}`);
+                            throw new Error(`Invalid response format from server: ${JSON.stringify(result)}`);
+                        }
+                        
+                        // Check for error in the result object
+                        if (result && typeof result === 'object' && 'error' in result) {
+                            const errorMsg = (result as any).error;
+                            outputChannel.appendLine(`Error from server: ${errorMsg}`);
+                            
+                            // Check if the error is about the API key
+                            if (errorMsg.includes('ANTHROPIC_API_KEY') || errorMsg.includes('API key')) {
+                                vscode.window.showInformationMessage('API key not configured. Creating team in offline mode.');
+                                return createFallbackTeam(description);
+                            } else {
+                                throw new Error(`Server returned error: ${errorMsg}`);
+                            }
+                        }
+                        
+                        progress.report({ increment: 100, message: "Team created!" });
+                        
+                        // Show a success message
+                        vscode.window.showInformationMessage('Team created successfully!');
+                        
+                        return result;
+                    } catch (err) {
+                        // If we get a "write after end" error, mark the server as not started
+                        // to force a complete reinit next time
+                        const errorMsg = String(err);
+                        if (errorMsg.includes('write after end')) {
+                            outputChannel.appendLine('Detected "write after end" error, marking server for full restart');
+                            serverStatus = ServerStatus.NotStarted;
+                            startupPromise = null;
+                        }
+                        
+                        outputChannel.appendLine(`Error in team creation request: ${err}`);
+                        
+                        // Try to create a fallback team instead of throwing
+                        outputChannel.appendLine('Creating fallback team due to error');
+                        vscode.window.showInformationMessage('Server error - creating team in offline mode instead.');
+                        return createFallbackTeam(description);
+                    }
+                });
+                
+                // Log the successful result
+                outputChannel.appendLine('Team creation completed with result: ' + JSON.stringify(result));
+                return result;
+            } catch (err) {
+                outputChannel.appendLine(`Error creating team: ${err}`);
+                vscode.window.showErrorMessage(`Error creating team: ${err}`);
+                
+                // Even if there's an error, return a fallback team
+                vscode.window.showErrorMessage('Unable to create team normally, using offline mode.');
+                return createFallbackTeam(description);
+            }
+        }),
+        
+        // Simple command to open the output channel - helpful for debugging
+        vscode.commands.registerCommand('tribe.showOutput', () => {
+            outputChannel.show();
+        }),
+        
+        // Command to show diagnostics info
+        vscode.commands.registerCommand('tribe.showDiagnostics', async () => {
+            try {
+                const diagnosticInfo = {
+                    extension: {
+                        version: vscode.extensions.getExtension('mightydev.tribe')?.packageJSON?.version || 'unknown',
+                        path: vscode.extensions.getExtension('mightydev.tribe')?.extensionPath || 'unknown',
+                    },
+                    client: {
+                        state: client ? client["_state"] : 'Not initialized',
+                        running: client ? client["_serverProcess"] !== undefined : false
+                    },
+                    python: {
+                        path: process.env.PYTHONPATH || 'Not set',
+                        version: await vscode.commands.executeCommand('python.interpreterPath') || 'unknown'
+                    },
+                    env: {
+                        modelSet: Boolean(API_ENDPOINTS.MODEL),
+                        model: API_ENDPOINTS.MODEL || 'Not set'
                     }
                 };
-
-                // Start the language server
-                const startServer = errorWrapper(
-                    async () => {
-                        try {
-                            const workspaceFolders = vscode.workspace.workspaceFolders;
-                            if (!workspaceFolders || workspaceFolders.length === 0) {
-                                traceLog('No workspace folders found. Server will not be started.');
-                                return;
-                            }
-
-                            // When in development mode, launch the server locally
-                            const isDevelopment = true; // For debugging
-                            if (isDevelopment) {
-                                const entryPointScript = path.join(
-                                    context.extensionPath,
-                                    'bundled',
-                                    'tool',
-                                    'lsp_server.py',
-                                );
-
-                                // Find appropriate Python interpreter
-                                let pythonPath = 'python3';
-                                try {
-                                    // Check if system Python exists
-                                    const { stdout } = await execAsync('which python3 || which python').catch(() => ({
-                                        stdout: '',
-                                    }));
-                                    if (stdout && stdout.trim()) {
-                                        pythonPath = stdout.trim();
-                                        traceLog(`Using system Python: ${pythonPath}`);
-                                    }
-                                } catch (error) {
-                                    traceLog(`Error finding system Python: ${error}`);
-                                    // Continue with default python3
-                                }
-
-                                // Set up environment variables to help the server find modules
-                                const newEnv = { ...process.env };
-
-                                // Add the extension path to PYTHONPATH to help with imports
-                                const extensionPaths = [
-                                    path.join(context.extensionPath),
-                                    path.join(context.extensionPath, 'tribe'),
-                                    path.join(context.extensionPath, 'bundled', 'libs'),
-                                    path.join(context.extensionPath, 'bundled', 'tool'),
-                                ];
-
-                                // Create PYTHONPATH with the extension paths
-                                newEnv.PYTHONPATH =
-                                    extensionPaths.join(path.delimiter) +
-                                    (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : '');
-
-                                // Set import strategy to fromEnvironment
-                                newEnv.LS_IMPORT_STRATEGY = 'fromEnvironment';
-
-                                // Add more verbose logging
-                                newEnv.PYTHONVERBOSE = '1';
-                                newEnv.LS_SHOW_NOTIFICATION = 'always';
-
-                                traceLog(`PYTHONPATH: ${newEnv.PYTHONPATH}`);
-                                traceLog(`Python interpreter: ${pythonPath}`);
-
-                                const serverOptions: ServerOptions = {
-                                    command: pythonPath,
-                                    args: [
-                                        entryPointScript,
-                                        '--log-file',
-                                        path.join(context.extensionPath, 'tribe-server.log'),
-                                    ],
-                                    options: {
-                                        cwd: path.dirname(entryPointScript),
-                                        env: newEnv,
-                                    },
-                                };
-
-                                // Client options
-                                const clientOptions: LanguageClientOptions = {
-                                    documentSelector: [{ language: '*' }],
-                                    outputChannel,
-                                    traceOutputChannel: outputChannel,
-                                    synchronize: {
-                                        configurationSection: 'tribe',
-                                    },
-                                };
-
-                                // Create the language client and start the client.
-                                lsClient = new LanguageClient(
-                                    'tribe',
-                                    'Tribe Language Server',
-                                    serverOptions,
-                                    clientOptions,
-                                );
-
-                                // Register handler for notification messages from server
-                                lsClient.onReady().then(() => {
-                                    lsClient?.onNotification('tribe/statusUpdate', handleServerStatusUpdates);
-                                });
-
-                                // Start the client. This will also launch the server
-                                context.subscriptions.push(lsClient.start());
-                                traceLog('Tribe Language Server started in development mode');
-                            }
-                        } catch (error) {
-                            traceError('Failed to start language server', error);
-                            throw error;
-                        }
-                    },
-                    'SERVER_INIT_FAILED',
-                    ErrorCategory.SYSTEM,
-                    'Server initialization',
+                
+                // Create a diagnostics panel
+                const panel = vscode.window.createWebviewPanel(
+                    'tribeDiagnostics',
+                    'Tribe Diagnostics',
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
                 );
-
-                // Register commands and handlers
-                context.subscriptions.push(
-                    onDidChangePythonInterpreter(async () => {
-                        errorWrapper(
-                            async () => {
-                                await restartServer(serverId, pythonPath, outputChannel, lsClient);
-                            },
-                            'INTERPRETER_CHANGE_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Python interpreter change handler',
-                        )();
-                    }),
-                    onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
-                        errorWrapper(
-                            async () => {
-                                if (checkIfConfigurationChanged(e, serverId)) {
-                                    await restartServer(serverId, pythonPath, outputChannel, lsClient);
-                                }
-                            },
-                            'CONFIG_CHANGE_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Configuration change handler',
-                        )();
-                    }),
-                    registerCommand(`${serverId}.restart`, async () => {
-                        errorWrapper(
-                            async () => {
-                                traceLog('Manual server restart requested');
-
-                                // First try to get a system Python
-                                let systemPythonPath = 'python3';
-                                try {
-                                    const { stdout } = await execAsync('which python3 || which python').catch(() => ({
-                                        stdout: '',
-                                    }));
-                                    if (stdout && stdout.trim()) {
-                                        systemPythonPath = stdout.trim();
-                                        traceLog(`Using system Python for restart: ${systemPythonPath}`);
-                                    }
-                                } catch (error) {
-                                    traceLog(`Error finding system Python for restart: ${error}`);
-                                }
-
-                                // Attempt server restart with more detailed logging
-                                try {
-                                    vscode.window.showInformationMessage('Restarting Tribe Language Server...');
-                                    await restartServer(serverId, systemPythonPath, outputChannel, lsClient);
-                                    vscode.window.showInformationMessage(
-                                        'Tribe Language Server restarted successfully',
-                                    );
-                                } catch (error) {
-                                    traceError(`Server restart failed: ${error}`);
-                                    vscode.window.showErrorMessage(
-                                        `Failed to restart server: ${error instanceof Error ? error.message : String(error)}`,
-                                    );
-
-                                    // If restart fails, try reinstantiating the client completely
-                                    try {
-                                        traceLog('Attempting full client reinstantiation');
-                                        if (lsClient) {
-                                            // Dispose the client properly
-                                            if (
-                                                (lsClient as any)._state !== undefined &&
-                                                (lsClient as any)._state !== State.Stopped
-                                            ) {
-                                                await lsClient.stop();
-                                            }
-                                            // Instead of using dispose directly, we use stop() which already handles proper cleanup
-                                            // as dispose() is not available on the LanguageClient type
-                                        }
-
-                                        // Create a new client
-                                        lsClient = undefined;
-                                        await startServer();
-                                        vscode.window.showInformationMessage(
-                                            'Tribe Language Server reinstantiated successfully',
-                                        );
-                                    } catch (reinstantiateError) {
-                                        traceError(`Server reinstantiation failed: ${reinstantiateError}`);
-                                        vscode.window.showErrorMessage(
-                                            `Failed to reinstantiate server. Please reload VS Code window.`,
-                                        );
-                                    }
-                                }
-                            },
-                            'SERVER_RESTART_FAILED',
-                            ErrorCategory.SYSTEM,
-                            'Server restart command',
-                        )();
-                    }),
-                );
-
-                await startServer();
-            } catch (error) {
-                traceError('Failed to activate extension', error);
-                throw error;
+                
+                // Format the diagnostics data as HTML
+                panel.webview.html = `<!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Tribe Diagnostics</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; }
+                        h1 { color: #333; }
+                        .section { margin-bottom: 20px; }
+                        .card { background: #f5f5f5; border-radius: 5px; padding: 15px; margin-bottom: 10px; }
+                        .success { color: green; }
+                        .error { color: red; }
+                        table { width: 100%; border-collapse: collapse; }
+                        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Tribe Extension Diagnostics</h1>
+                    
+                    <div class="section">
+                        <h2>Extension Info</h2>
+                        <div class="card">
+                            <table>
+                                <tr><th>Version</th><td>${diagnosticInfo.extension.version}</td></tr>
+                                <tr><th>Path</th><td>${diagnosticInfo.extension.path}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Language Client Status</h2>
+                        <div class="card">
+                            <table>
+                                <tr>
+                                    <th>State</th>
+                                    <td class="${diagnosticInfo.client.state === 'Running' ? 'success' : 'error'}">
+                                        ${diagnosticInfo.client.state}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Server Process</th>
+                                    <td class="${diagnosticInfo.client.running ? 'success' : 'error'}">
+                                        ${diagnosticInfo.client.running ? 'Running' : 'Not running'}
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Python Environment</h2>
+                        <div class="card">
+                            <table>
+                                <tr><th>PYTHONPATH</th><td>${diagnosticInfo.python.path}</td></tr>
+                                <tr><th>Python Version</th><td>${diagnosticInfo.python.version}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Model Configuration</h2>
+                        <div class="card">
+                            <table>
+                                <tr>
+                                    <th>Model Set</th>
+                                    <td class="${diagnosticInfo.env.modelSet ? 'success' : 'error'}">
+                                        ${diagnosticInfo.env.modelSet ? 'Yes' : 'No'}
+                                    </td>
+                                </tr>
+                                <tr><th>Model</th><td>${diagnosticInfo.env.model}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Actions</h2>
+                        <button onclick="vscode.postMessage({command: 'restart'})">Restart Server</button>
+                        <button onclick="vscode.postMessage({command: 'showOutput'})">Show Output Log</button>
+                    </div>
+                    
+                    <script>
+                        const vscode = acquireVsCodeApi();
+                        
+                        window.addEventListener('message', event => {
+                            const message = event.data;
+                            // Handle messages from the extension
+                        });
+                    </script>
+                </body>
+                </html>`;
+                
+                // Handle webview messages
+                panel.webview.onDidReceiveMessage(message => {
+                    switch (message.command) {
+                        case 'restart':
+                            vscode.commands.executeCommand('tribe.restart');
+                            break;
+                        case 'showOutput':
+                            vscode.commands.executeCommand('tribe.showOutput');
+                            break;
+                    }
+                });
+            } catch (err) {
+                outputChannel.appendLine(`Error showing diagnostics: ${err}`);
+                vscode.window.showErrorMessage(`Error showing diagnostics: ${err}`);
             }
-        } catch (error) {
-            console.error('Error activating Tribe extension:', error);
-            throw error;
-        }
-    },
-    'EXTENSION_ACTIVATION_FAILED',
-    ErrorCategory.SYSTEM,
-    'Extension activation',
-);
+        })
+    );
+    
+    // The server will be started on demand when needed
+    outputChannel.appendLine('Extension activated. Server will start when needed.');
+}
 
-export const deactivate = errorWrapper(
-    async () => {
-        if (lsClient) {
-            await lsClient.stop();
-        }
-    },
-    'EXTENSION_DEACTIVATION_FAILED',
-    ErrorCategory.SYSTEM,
-    'Extension deactivation',
-);
+export function deactivate(): Thenable<void> | undefined {
+    if (!client) {
+        return undefined;
+    }
+    
+    // When VSCode is shutting down, make sure we properly clean up
+    outputChannel.appendLine('Tribe extension deactivating, stopping server...');
+    serverStatus = ServerStatus.NotStarted;  // Mark as not started
+    
+    try {
+        return client.stop();
+    } catch (err) {
+        outputChannel.appendLine(`Error stopping client during deactivation: ${err}`);
+        return undefined;
+    }
+}
 
 //#region Function definitions for Enhanced Genesis Agent commands
 

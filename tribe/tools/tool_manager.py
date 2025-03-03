@@ -19,8 +19,9 @@ import requests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get API endpoint from environment
-API_ENDPOINT = os.environ.get('AI_API_ENDPOINT', 'https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/')
+# Use CrewAI's LLM to handle AI operations
+from crewai import LLM
+DEFAULT_MODEL = "anthropic/claude-3-7-sonnet-20250219"
 
 class ToolExecutionContext(BaseModel):
     """Context for tool execution"""
@@ -119,19 +120,39 @@ class DynamicToolManager:
                         
                         for attempt in range(max_retries):
                             try:
-                                # If the tool requires AI capabilities, route through Lambda
+                                # If the tool requires AI capabilities, use CrewAI's LLM
                                 if getattr(self.method, 'requires_ai', False):
-                                    response = requests.post(
-                                        API_ENDPOINT,
-                                        json={
-                                            'type': 'tool_execution',
-                                            'tool_name': self.metadata.name,
-                                            'parameters': kwargs,
-                                            'context': context.dict()
-                                        }
-                                    )
-                                    response.raise_for_status()
-                                    return response.json()
+                                    # Create LLM instance
+                                    model = LLM(model=DEFAULT_MODEL)
+                                    
+                                    # Convert tool execution to message format
+                                    system_message = f"You are a tool execution expert for the tool: {self.metadata.name}"
+                                    user_message = f"""
+                                    Execute the tool with the following parameters:
+                                    Tool: {self.metadata.name}
+                                    Parameters: {json.dumps(kwargs, indent=2)}
+                                    Context: {json.dumps(context.dict(), indent=2)}
+                                    
+                                    Your response MUST be valid JSON containing the execution result.
+                                    """
+                                    
+                                    # Call the LLM
+                                    response = model.call(messages=[
+                                        {"role": "system", "content": system_message},
+                                        {"role": "user", "content": user_message}
+                                    ])
+                                    
+                                    # Parse the response
+                                    try:
+                                        # Try to parse the response as JSON
+                                        import re
+                                        json_match = re.search(r"```(?:json)?\n(.*?)\n```", response, re.DOTALL)
+                                        if json_match:
+                                            response = json_match.group(1)
+                                        return json.loads(response)
+                                    except:
+                                        # Return the raw response if parsing fails
+                                        return {"result": response}
                                 
                                 # Otherwise execute normally
                                 if asyncio.iscoroutinefunction(self.method):

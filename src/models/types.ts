@@ -3,6 +3,42 @@
 import * as vscode from 'vscode';
 
 /**
+ * Types for agents and teams
+ */
+export interface Agent {
+	id: string;
+	name: string;
+	role: string;
+	description: string;
+	short_description?: string;
+	status: string;
+	backstory?: string;
+	initialization_complete?: boolean;
+	tools?: string[];
+	autonomy_level?: number;
+	supervision_needed?: boolean;
+}
+
+export interface Team {
+	id: string;
+	description: string;
+	name: string;
+	agents: Agent[];
+	vision?: string;
+	created_at?: string;
+}
+
+export interface Project {
+	id: string;
+	name: string;
+	description: string;
+	initialized: boolean;
+	team: Team;
+	created_at?: string;
+	updated_at?: string;
+}
+
+/**
  * Types for change management
  */
 export interface FileChange {

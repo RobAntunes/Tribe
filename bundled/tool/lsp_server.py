@@ -164,7 +164,6 @@ try:
                 self.active_crews = {}
                 self.active_agents = {}
                 self.workspace_path = None
-                self.ai_api_endpoint = os.environ.get("AI_API_ENDPOINT", "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/")
                 
             def get_agent(self, agent_id):
                 return self.active_agents.get(agent_id)
@@ -641,7 +640,7 @@ try:
             def __init__(self):
                 self.active_crews = {}
                 self.active_agents = {}
-                self.ai_api_endpoint = "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/"
+                self.workspace_path = None
         
         # Create a simple tribe_server
         # Update module variables which are already defined at the top level

@@ -6,6 +6,40 @@ import * as vscode from 'vscode';
 import { getNonce } from '../../utils/getNonce';
 import { getUri } from '../../utils/getUri';
 
+// Project-related interfaces for TypeScript
+interface ProjectAgent {
+    id: string;
+    name: string;
+    role: string;
+    description: string;
+    short_description?: string;
+    status: string;
+    backstory?: string;
+    initialization_complete?: boolean;
+    tools?: string[];
+    autonomy_level?: number;
+    supervision_needed?: boolean;
+}
+
+interface ProjectTeam {
+    id: string;
+    description: string;
+    name: string;
+    agents: ProjectAgent[];
+    vision?: string;
+    created_at?: string;
+}
+
+interface ProjectData {
+    id: string;
+    name: string;
+    description: string;
+    initialized: boolean;
+    team: ProjectTeam;
+    created_at?: string;
+    updated_at?: string;
+}
+
 // Message types for agent management
 interface AgentMessage {
     type: string;
@@ -28,7 +62,14 @@ interface TeamData {
 }
 
 interface TeamResult {
-    team: TeamData;
+    team?: TeamData;
+    project?: {
+        team: TeamData;
+        id: string;
+        name: string;
+        description: string;
+        initialized: boolean;
+    };
 }
 
 interface ProjectInitPayload {
@@ -445,15 +486,34 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
             const result = (await vscode.commands.executeCommand('tribe.createTeam', teamSpec)) as TeamResult;
 
             console.log('Team creation response:', result);
-            if (!result?.team) {
+            
+            // Support both response formats: either {team: {...}} or {project: {team: {...}}}
+            let teamData;
+            if (result?.team) {
+                // Direct team format
+                teamData = result.team;
+            } else if (result?.project?.team) {
+                // Nested project.team format (from Python server)
+                teamData = result.project.team;
+            } else {
                 throw new Error('Failed to create team: Invalid response format');
             }
-
-            const teamData = result.team;
             const agents = teamData.agents || [];
 
             // Update current agents and ensure VP of Engineering is always present
             this._currentAgents = agents;
+            
+            // Save agents and team to persistence layer
+            try {
+                console.log('Saving agents and team to persistence layer');
+                await vscode.commands.executeCommand('tribe.saveTeamData', {
+                    team: teamData,
+                    agents: agents
+                });
+            } catch (err) {
+                console.error('Error saving team data:', err);
+                // Continue even if saving fails
+            }
 
             // Find if we have a VP of Engineering
             const vpAgent = this._currentAgents.find(agent => 
@@ -483,11 +543,30 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                 },
             });
 
-            // Update agents list if we have agents
+            // Update agents list if we have agents - send multiple message types for redundancy
             if (this._currentAgents.length > 0) {
                 console.log('Updating agents list with:', agentsToDisplay);
+                
+                // Send AGENTS_LOADED for backward compatibility
                 this._view?.webview.postMessage({
                     type: 'AGENTS_LOADED',
+                    payload: agentsToDisplay,
+                });
+                
+                // Send PROJECT_STATE update with agents
+                this._view?.webview.postMessage({
+                    type: 'PROJECT_STATE',
+                    payload: {
+                        agents: agentsToDisplay,
+                        activeAgents: agentsToDisplay,
+                        initialized: true,
+                        current: true
+                    },
+                });
+                
+                // Send direct agent update message
+                this._view?.webview.postMessage({
+                    type: 'AGENT_ROSTER_UPDATED',
                     payload: agentsToDisplay,
                 });
             }
@@ -510,26 +589,53 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
 
     private async _initializeProject(payload: ProjectInitPayload) {
         try {
-            const result = (await vscode.commands.executeCommand(
-                'tribe.initializeProject',
-                payload,
-            )) as ProjectInitResult;
-
-            // Send project initialization with current agents to ensure UI has latest state
-            const agentsToSend = this._currentAgents.length > 0 ? this._currentAgents : payload.team.agents || [];
-            console.log('Project initialized, sending agents:', agentsToSend);
-            
-            this._view?.webview.postMessage({
-                type: 'PROJECT_INITIALIZED',
-                payload: {
-                    ...result,
-                    agents: agentsToSend,
-                    activeAgents: agentsToSend,
-                    team: payload.team,
-                    vision: payload.vision,
-                    currentPhase: 'Planning'
-                },
-            });
+            // Try to call the initialization command
+            try {
+                const result = (await vscode.commands.executeCommand(
+                    'tribe.initializeProject',
+                    payload,
+                )) as ProjectInitResult;
+                
+                // Send project initialization with current agents to ensure UI has latest state
+                const agentsToSend = this._currentAgents.length > 0 ? this._currentAgents : payload.team.agents || [];
+                console.log('Project initialized, sending agents:', agentsToSend);
+                
+                this._view?.webview.postMessage({
+                    type: 'PROJECT_INITIALIZED',
+                    payload: {
+                        ...result,
+                        agents: agentsToSend,
+                        activeAgents: agentsToSend,
+                        team: payload.team,
+                        vision: payload.vision,
+                        currentPhase: 'Planning'
+                    },
+                });
+            } catch (commandError) {
+                // If command is not found, just proceed with UI updates
+                console.warn('Could not call initialization command, using fallback:', commandError);
+                
+                // Generate a project ID
+                const projectId = `project-${Date.now()}`;
+                
+                // Just update the UI directly
+                const agentsToSend = this._currentAgents.length > 0 ? this._currentAgents : payload.team.agents || [];
+                console.log('Using fallback project initialization, sending agents:', agentsToSend);
+                
+                this._view?.webview.postMessage({
+                    type: 'PROJECT_INITIALIZED',
+                    payload: {
+                        id: projectId,
+                        initialized: true,
+                        status: 'active',
+                        agents: agentsToSend,
+                        activeAgents: agentsToSend,
+                        team: payload.team,
+                        vision: payload.vision,
+                        currentPhase: 'Planning'
+                    },
+                });
+            }
         } catch (error) {
             console.error('Error initializing project:', error);
             this._view?.webview.postMessage({
@@ -940,35 +1046,44 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                 async (progress) => {
                     progress.report({ increment: 0, message: "Deleting Tribe configuration..." });
                     
+                    // Call server-side reset command to clean up storage
+                    try {
+                        const resetResult = await vscode.commands.executeCommand('tribe.resetStorage');
+                        progress.report({ increment: 25, message: `Storage reset: ${resetResult ? 'Success' : 'Failed'}` });
+                    } catch (err) {
+                        console.error("Error calling resetStorage command:", err);
+                        // Continue with UI reset even if storage reset fails
+                    }
+                    
                     // Get workspace folder
                     const workspaceFolders = vscode.workspace.workspaceFolders;
-                    if (!workspaceFolders || workspaceFolders.length === 0) {
-                        throw new Error('No workspace folder open');
-                    }
-                    
-                    const workspaceFolder = workspaceFolders[0];
-                    const tribeFolderPath = vscode.Uri.joinPath(workspaceFolder.uri, '.tribe');
-                    
-                    // Delete the .tribe folder if it exists
-                    try {
-                        await vscode.workspace.fs.delete(tribeFolderPath, { recursive: true });
-                        progress.report({ increment: 50, message: "Resetting state..." });
-                    } catch (err) {
-                        console.log("No .tribe folder to delete or error deleting:", err);
+                    if (workspaceFolders && workspaceFolders.length > 0) {
+                        const workspaceFolder = workspaceFolders[0];
+                        const tribeFolderPath = vscode.Uri.joinPath(workspaceFolder.uri, '.tribe');
+                        
+                        // Delete the .tribe folder if it exists
+                        try {
+                            await vscode.workspace.fs.delete(tribeFolderPath, { recursive: true });
+                            progress.report({ increment: 25, message: "Workspace .tribe folder deleted" });
+                        } catch (err) {
+                            console.log("No workspace .tribe folder to delete or error deleting:", err);
+                        }
                     }
 
-                    // Reset the state
+                    // Reset the UI state
+                    progress.report({ increment: 25, message: "Resetting UI state..." });
+                    
                     this._currentAgents = [];
                     this._changeGroups = [];
                     this._alternativeImplementations = [];
                     this._conflicts = [];
                     this._annotations = [];
                     this._checkpoints = [];
+                    this._agents = [];
                     
-                    progress.report({ increment: 50, message: "Updating UI..." });
-                    
-                    // Update UI state
+                    // Update UI state with multiple message types for redundancy
                     if (this._view) {
+                        // Clear project state
                         this._view.webview.postMessage({
                             type: 'PROJECT_STATE',
                             payload: {
@@ -983,10 +1098,27 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                                 teams: []
                             }
                         });
+                        
+                        // Clear agents
+                        this._view.webview.postMessage({
+                            type: 'AGENTS_LOADED',
+                            payload: []
+                        });
+                        
+                        // Reset to initial view
+                        this._view.webview.postMessage({
+                            type: 'RESET_TO_INITIAL',
+                            payload: { timestamp: Date.now() }
+                        });
+                        
+                        // Update general state
+                        this._updateWebview();
                     }
                     
+                    progress.report({ increment: 25, message: "Reset complete" });
+                    
                     // Show success message
-                    vscode.window.showInformationMessage("Tribe has been reset successfully.");
+                    vscode.window.showInformationMessage("Tribe has been reset successfully. Please reload if needed.");
                 }
             );
         } catch (error) {
@@ -998,6 +1130,34 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
         try {
             // Immediately load and send the agents to populate the UI
             await this._getAgents();
+            
+            // Try to load active project from persistence
+            try {
+                const activeProject = await vscode.commands.executeCommand('tribe.getActiveProject') as ProjectData | null;
+                
+                if (activeProject && activeProject.team && activeProject.team.agents) {
+                    console.log('Found active project:', activeProject.id);
+                    
+                    // Update local state with the loaded agents
+                    this._currentAgents = activeProject.team.agents;
+                    
+                    // Send the loaded project state to the UI
+                    this._view?.webview.postMessage({
+                        type: 'PROJECT_INITIALIZED',
+                        payload: {
+                            id: activeProject.id,
+                            initialized: true,
+                            agents: activeProject.team.agents,
+                            activeAgents: activeProject.team.agents,
+                            team: activeProject.team,
+                            vision: activeProject.team.vision || activeProject.description,
+                            currentPhase: 'Planning'
+                        }
+                    });
+                }
+            } catch (e) {
+                console.log('No active project to load:', e);
+            }
             
             try {
                 // Load any pending changes

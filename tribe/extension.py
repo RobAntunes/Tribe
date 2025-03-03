@@ -13,6 +13,8 @@ from datetime import datetime
 
 from .crew import Tribe
 from .core.dynamic import DynamicAgent, DynamicCrew
+from .core.direct_api import create_team as create_team_api, TeamMember
+from .core.config import config
 
 # Configure logging
 logging.basicConfig(
@@ -28,10 +30,6 @@ class TribeLanguageServer(LanguageServer):
     def __init__(self, name: str = "tribe-ls", version: str = "1.0.0"):
         super().__init__(name=name, version=version)
         self.workspace_path = None
-        self.ai_api_endpoint = os.getenv(
-            "AI_API_ENDPOINT",
-            "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/",
-        )
         self.active_crews = {}
         self.active_agents = {}
 
@@ -136,9 +134,41 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
                     )
                     return {"error": f"Failed to create VP of Engineering: {str(e)}"}
 
-                # Create dynamic crew with the VP and additional agents
+                # Convert dictionary agents to DynamicAgent objects
+                dynamic_additional_agents = []
+                # Store character attributes in project_context dictionaries
+                for agent_dict in additional_agents:
+                    # Create a DynamicAgent with the correct parameters
+                    dynamic_agent = DynamicAgent(
+                        role=agent_dict["role"],
+                        goal=agent_dict["goal"],
+                        backstory=agent_dict["description"],
+                        api_endpoint=None  # Use default API endpoint
+                    )
+                    
+                    # Set name and other attributes after initialization
+                    dynamic_agent.name = agent_dict["name"]
+                    dynamic_agent.short_description = agent_dict.get("description", "")[:100]
+                    
+                    # Store character attributes in the agent's _state["project_context"] dictionary
+                    # This is a dictionary maintained by DynamicAgent for custom attributes
+                    dynamic_agent._state["project_context"] = {
+                        "character": agent_dict.get("character", []),
+                        "communication_style": agent_dict.get("communication_style", ""),
+                        "working_style": agent_dict.get("working_style", ""),
+                        "emoji": agent_dict.get("emoji", "💡"),
+                        "visual_description": agent_dict.get("visual_description", ""),
+                        "catchphrase": agent_dict.get("catchphrase", "")
+                    }
+                    
+                    # Add the agent to our list
+                    dynamic_additional_agents.append(dynamic_agent)
+                
+                logger.info(f"Successfully converted {len(dynamic_additional_agents)} dictionary agents to DynamicAgent objects")
+                
+                # Create dynamic crew with the VP and converted additional agents
                 try:
-                    all_agents = [vp] + additional_agents
+                    all_agents = [vp] + dynamic_additional_agents
 
                     # Double-check we have enough agents for a proper team
                     if len(all_agents) < 3:
@@ -164,7 +194,7 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
                             "verbose": True,
                             "max_rpm": 60,
                             "share_crew": True,
-                            "api_endpoint": ls.ai_api_endpoint,
+                            "model": "anthropic/claude-3-7-sonnet-20250219",
                         }
                     )
 
@@ -197,10 +227,15 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
 
                 # Return successful response with detailed agent info
                 response = {
-                    "crew_id": crew_id,
-                    "team": {
-                        "id": crew_id,
+                    "project": {
+                        "id": f"project-{crew_id}",
+                        "name": "Project",
                         "description": payload.get("description", ""),
+                        "initialized": True,
+                        "team": {
+                            "id": f"team-{crew_id}",
+                            "name": "Team",
+                            "description": f"Team for {payload.get('description', '')}",
                         "agents": [
                             {
                                 "id": str(agent.id)
@@ -232,9 +267,9 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
                                 else [],
                             }
                             for agent in all_agents
-                        ],
-                        "vision": payload.get("description", ""),
-                    },
+                            ]
+                        }
+                    }
                 }
 
                 return response
@@ -263,575 +298,76 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
         return {"error": f"Error creating team: {str(e)}"}
 
 
-async def _create_additional_team_members(
-    project_description: str, default_tools=None
-) -> List[Any]:
-    """Create additional team members based on project requirements using Pydantic models.
-    This function MUST use the foundation model to generate the team. The default team
-    should only be used as a fallback in case of complete failure."""
-    try:
-        from .core.dynamic import DynamicAgent, TeamCompositionResponse, RoleRequirement
-        from pydantic import BaseModel
-        import json
-        import asyncio
-        from asyncio import TimeoutError
-
-        # Add a timeout to the entire operation to prevent infinite loops
-        GLOBAL_TIMEOUT = 60  # seconds
-
-        # Log that we're starting team creation
-        logger.info(f"Creating team with description: {project_description[:100]}")
-
-        # Step 1: Use the Lambda API directly with properly formatted messages array
-        from .core.foundation_model import FoundationModelInterface
-        import requests
-
-        # Create proper system and user messages for the Lambda API
-        system_message = """As an expert in team design and AI agent systems, your task is to create a well-balanced team structure.
-        You are Tank, the VP of Engineering, responsible for creating an optimal set of
-        AI agents for a software development project. Based on the project description, you need to:
-
-        1. Analyze the requirements and determine the ideal team composition
-        2. Design a team of specialized AI agents with complementary skills
-        3. For each agent, create a character-like name (e.g. Sparks, Nova, Cipher, etc.) and description
-        4. Define initial tasks for each agent
-        5. Define the team structure, hierarchy, and communication patterns
-
-        You MUST respond in valid, parseable JSON format according to the schema specified in the prompt.
-        This is CRITICAL: Your response must be pure, valid JSON with no explanations, markdown, or text outside the JSON object.
-        Failure to provide valid JSON will break the system integration.
-        Your response MUST follow the TeamResponse pydantic model structure exactly, with required_roles field.
-        """
-
-        user_prompt = f"""Create an optimal set of agents for this project:
-
-        Project Description: {project_description}
-
-        CRITICAL REQUIREMENTS (MUST FOLLOW EXACTLY):
-        1. Create a diverse team with 5-8 different specialized roles
-        2. Give each agent a memorable character-like name (like "Spark", "Nova", "Cipher")
-        3. Include detailed backstory/description for each agent
-        4. Define clear skills and responsibilities for each role
-        5. Ensure the team can handle all aspects of software development
-        6. Define specific collaboration patterns between agents
-
-        For each agent, provide:
-        1. A character-like name (e.g. Sparks, Nova, Cipher, etc.) that reflects their personality or function
-        2. A clear role definition
-        3. A detailed backstory
-        4. Their primary goals
-        5. A set of initial tasks
-
-        Your response MUST be formatted as valid JSON that matches this structure exactly:
-        {{
-          "required_roles": [
-            {{
-              "role": "Role title",
-              "name": "Character name - Role",
-              "description": "Detailed description and backstory",
-              "goal": "Primary objective for this role",
-              "required_skills": ["skill1", "skill2", "skill3"],
-              "collaboration_pattern": "How this agent collaborates"
-            }}
-          ],
-          "team_structure": {{
-            "hierarchy": "flat/hierarchical",
-            "communication": "Communication patterns between agents",
-            "coordination": "How agents coordinate work"
-          }}
-        }}
-
-        Remember, each agent should have a distinctive character-like name, not just their role (e.g., "Nova" not just "Designer").
-
-        IMPORTANT:
-        - Include a VP of Engineering or similar leadership role
-        - Your response MUST be pure, valid JSON with NO text outside the JSON structure
-        - No explanations, comments, or markdown formatting allowed
-        - This JSON will be parsed automatically by a machine, so it must be perfectly formatted
-        - Do not include any text like "```json" or "```" around your JSON
-        """
-
-        # Create the messages array with proper format for Lambda API
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        # Set up the Lambda API URL
-        lambda_api_endpoint = (
-            "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/"
-        )
-
-        logger.info(f"Using lambda API endpoint: {lambda_api_endpoint}")
-        # Use the FoundationModelInterface for better structured response handling
-        from .core.foundation_model import FoundationModelInterface
-
-        # Create a direct query function to call Lambda with messages array through the foundation model interface
-        async def query_lambda_api():
-            # Create foundation model interface
-            foundation_model = FoundationModelInterface(
-                api_endpoint=lambda_api_endpoint
-            )
-
-            # Use the foundation model with structured_output=True for automatic Pydantic validation
-            response = await foundation_model.query_model_async(
-                prompt=user_prompt,
-                system_message=system_message,
-                structured_output=True,
-                max_tokens=2500
-            )
-
-            # Parse the response for the TeamCompositionResponse model
-            if isinstance(response, str):
-                try:
-                    # Parse JSON string to dict
-                    response_dict = json.loads(response)
-                    # Validate with Pydantic and return
-                    return TeamCompositionResponse.model_validate(response_dict)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse Lambda response as JSON: {e}")
-                    logger.error(f"Raw content: {response[:1000]}")
-                    # Try to extract JSON from markdown code blocks if present
-                    import re
-
-                    json_match = re.search(
-                        r"```(?:json)?\n(.*?)\n```", response, re.DOTALL
-                    )
-                    if json_match:
-                        try:
-                            extracted_json = json.loads(json_match.group(1))
-                            return TeamCompositionResponse.model_validate(
-                                extracted_json
-                            )
-                        except Exception:
-                            pass
-
-                    # Last resort: try to find anything that looks like JSON
-                    json_match = re.search(r"\{.*\}", response, re.DOTALL)
-                    if json_match:
-                        try:
-                            extracted_json = json.loads(json_match.group(0))
-                            return TeamCompositionResponse.model_validate(
-                                extracted_json
-                            )
-                        except Exception:
-                            pass
-
-                    raise Exception("Failed to extract valid JSON from Lambda response")
-            elif isinstance(response, dict):
-                # Direct dict response - validate with Pydantic
-                return TeamCompositionResponse.model_validate(response)
-            else:
-                # If it's already a Pydantic model, return it directly
-                if isinstance(response, TeamCompositionResponse):
-                    return response
-
-                raise Exception(f"Unexpected response type: {type(response)}")
-
-        # Attempt to get a valid response with retries to our Lambda API with proper messages format
-        MAX_RETRIES = 2  # 2 retries max
-        logger.info(
-            f"Calling Lambda API for team composition with proper messages format (max retries: {MAX_RETRIES})"
-        )
-
-        # Function to retry the Lambda API call
-        async def query_with_retries():
-            team_data = None
-            last_error = None
-
-            for attempt in range(MAX_RETRIES):
-                try:
-                    # Log the attempt
-                    logger.info(
-                        f"Attempt {attempt + 1}/{MAX_RETRIES} to call Lambda API"
-                    )
-
-                    # Set a timeout just for this API call
-                    team_data = await asyncio.wait_for(
-                        query_lambda_api(),  # Use our new Lambda API function
-                        timeout=30,  # 30 second timeout for the API call
-                    )
-
-                    # Log success
-                    logger.info(
-                        f"Successfully received structured team data: {type(team_data)}"
-                    )
-
-                    # Check if we got a valid TeamCompositionResponse directly from query_lambda_api
-                    if isinstance(team_data, TeamCompositionResponse):
-                        logger.info(
-                            f"Successful TeamCompositionResponse received with {len(team_data.required_roles)} roles"
-                        )
-                        return team_data
-                    # Otherwise verify we have the required structure for manual validation
-                    elif (
-                        isinstance(team_data, dict)
-                        and "required_roles" in team_data
-                        and team_data["required_roles"]
-                    ):
-                        logger.info(
-                            f"Successful team data received with {len(team_data['required_roles'])} roles"
-                        )
-                        # Convert to TeamCompositionResponse for consistency
-                        return TeamCompositionResponse.model_validate(team_data)
-                    else:
-                        logger.error(
-                            "Received team data missing required 'required_roles' field or it's empty"
-                        )
-                        last_error = "Invalid team data structure: missing or empty 'required_roles'"
-                        team_data = None
-
-                except TimeoutError:
-                    logger.error(
-                        f"Lambda API call timed out after 30 seconds in attempt {attempt + 1}/{MAX_RETRIES}"
-                    )
-                    last_error = "Lambda API call timed out"
-                    # No need to sleep after a timeout
-
-                except Exception as e:
-                    last_error = str(e)
-                    logger.error(
-                        f"Error calling Lambda API (attempt {attempt + 1}/{MAX_RETRIES}): {str(e)}"
-                    )
-                    # Short delay before retry
-                    await asyncio.sleep(1)
-
-            # If we get here, all attempts failed
-            raise Exception(
-                f"All {MAX_RETRIES} Lambda API attempts failed. Last error: {last_error}"
-            )
-
-        # Apply a global timeout to the whole operation
-        try:
-            team_data = await asyncio.wait_for(
-                query_with_retries(), timeout=GLOBAL_TIMEOUT
-            )
-
-            # If we got here, we have valid team data
-            logger.info(
-                "Successfully obtained team data from Lambda API within timeout"
-            )
-
-        except TimeoutError:
-            # The global timeout was reached
-            logger.error(
-                f"Global timeout of {GLOBAL_TIMEOUT} seconds reached while trying to create team"
-            )
-            logger.error("Falling back to default team members due to timeout")
-            return await _create_default_team_members(
-                project_description, default_tools
-            )
-
-        except Exception as e:
-            # All retries failed
-            logger.error(f"Failed to get team composition from Lambda API: {str(e)}")
-            logger.error(
-                "This is a CRITICAL failure point - Lambda API did not return usable data"
-            )
-            logger.error("Falling back to default team members as last resort")
-            return await _create_default_team_members(
-                project_description, default_tools
-            )
-
-        # Validate the team composition against the expected structure using Pydantic
-        try:
-            # At this point, team_data should already be a valid TeamCompositionResponse
-            # from the query_with_retries function
-
-            # Just confirm we have the required structure
-            if isinstance(team_data, TeamCompositionResponse):
-                # We already have a validated model
-                team_composition = team_data
-                required_roles = team_composition.required_roles
-                logger.info(
-                    f"Using pre-validated TeamCompositionResponse with {len(required_roles)} roles"
-                )
-            else:
-                # If somehow we got a dict, validate it
-                logger.info(
-                    f"Team data structure before validation: {team_data.keys() if isinstance(team_data, dict) else 'Not a dict'}"
-                )
-
-                # Create TeamCompositionResponse from the parsed JSON with strict validation
-                from pydantic import ValidationError
-
-                try:
-                    # Use the native Pydantic model validation
-                    team_composition = TeamCompositionResponse.model_validate(team_data)
-                    required_roles = team_composition.required_roles
-                    logger.info(
-                        f"Successfully validated team composition with {len(required_roles)} roles"
-                    )
-                except ValidationError as ve:
-                    # Log detailed validation errors to help diagnose the issue
-                    logger.error(f"Pydantic validation error: {ve}")
-                    raise
-
-        except Exception as e:
-            logger.error(f"Invalid team composition format: {str(e)}")
-            logger.error("Falling back to default team members due to validation error")
-            return await _create_default_team_members(
-                project_description, default_tools
-            )
-
-        # Create agents based on the AI-generated roles using crewai's Agent pattern
-        additional_agents = []
-        for role_spec in required_roles:
-            try:
-                # Log each role specification to help with debugging
-                logger.info(
-                    f"Creating agent for role: {role_spec.role} with name: {role_spec.name}"
-                )
-
-                # Create agent with crewai-compatible parameters
-                from crewai import Agent
-
-                # First create the DynamicAgent that extends the crewai Agent
-                agent = DynamicAgent(
-                    role=role_spec.role,
-                    goal=role_spec.goal,
-                    backstory=role_spec.description,
-                    api_endpoint=None  # Use default API endpoint instead of allow_delegation
-                )
-                
-                # Add tools after creation
-                if default_tools:
-                    agent.tools = default_tools.copy()
-
-                # Set name and description
-                agent.name = role_spec.name
-                agent.short_description = (
-                    role_spec.description[:150] + "..."
-                    if len(role_spec.description) > 150
-                    else role_spec.description
-                )
-
-                # Set skills and other attributes for better compatibility
-                agent.skills = role_spec.required_skills
-
-                # Add more metadata for UI display
-                if not hasattr(agent, "status"):
-                    agent.status = "active"
-
-                # Configure agent collaboration based on the defined pattern
-                if hasattr(agent, "configure_collaboration"):
-                    await agent.configure_collaboration(
-                        {
-                            "team_communication": True,
-                            "collaboration_pattern": role_spec.collaboration_pattern,
-                        }
-                    )
-
-                # Log successful agent creation
-                logger.info(f"Successfully created agent: {agent.name} ({agent.role})")
-                additional_agents.append(agent)
-
-            except Exception as agent_error:
-                # Log error but continue with other agents
-                logger.error(
-                    f"Error creating agent {role_spec.name}: {str(agent_error)}"
-                )
-                continue
-
-            # Set appropriate autonomy level based on role
-            if hasattr(agent, "set_autonomy_level"):
-                # Leadership roles get higher autonomy
-                if role_spec.role.lower().startswith(
-                    ("lead", "senior", "vp", "head", "chief", "manager")
-                ):
-                    await agent.set_autonomy_level(0.9)  # High autonomy
-                else:
-                    await agent.set_autonomy_level(0.7)  # Moderate autonomy
-
-            additional_agents.append(agent)
-
-        return additional_agents
-
-    except Exception as e:
-        logger.error(f"Error generating team: {str(e)}")
-        # Fallback to default team members
-        return await _create_default_team_members(project_description, default_tools)
-
-
-async def _create_default_team_members(
-    project_description: str, default_tools=None
-) -> List[Any]:
-    """Create default team members as a fallback when AI-based team creation fails.
-    WARNING: This should ONLY be used in extreme cases where the foundation model is completely unavailable.
-    The default implementation SHOULD NOT be used under normal operations, as the foundation model
-    is required to generate diverse, specialized teams.
+async def _create_additional_team_members(project_description: str, default_tools: List = None) -> list:
     """
-    logger.warning(
-        "FALLBACK MODE: Creating default team members - THIS SHOULD NOT HAPPEN NORMALLY!"
-    )
-    logger.warning(
-        "The foundation model should be used for team creation. Check connectivity and API settings."
-    )
-    logger.info("Using emergency fallback team with standard roles")
-
-    # Add a small delay to prevent immediate recursion if there's a bug in the calling code
-    await asyncio.sleep(1)
-
-    # Define roles and their corresponding character-like names with full crewai compatibility
-    team_roles = [
-        {
-            "role": "VP of Engineering",
-            "name": "Tank",
-            "backstory": "An experienced VP of Engineering with expertise in technical leadership and system architecture. Tank oversees all technical aspects of the project, making high-level architectural decisions and coordinating team efforts.",
-            "goal": "Lead the engineering team to deliver high-quality software that meets project requirements",
-            "skills": [
-                "Technical leadership",
-                "System architecture",
-                "Team coordination",
-                "Strategic planning",
-            ],
-            "collaboration_pattern": "Hierarchical",
-        },
-        {
-            "role": "Lead Developer",
-            "name": "Spark",
-            "backstory": "A brilliant programmer with a knack for solving complex problems. Known for writing elegant, efficient code and mentoring junior developers.",
-            "goal": "Implement core functionality and ensure code quality across the codebase",
-            "skills": [
-                "Full-stack development",
-                "System architecture",
-                "Code optimization",
-                "Technical mentoring",
-            ],
-            "collaboration_pattern": "Collaborative",
-        },
-        {
-            "role": "UX Designer",
-            "name": "Nova",
-            "backstory": "A creative visionary with an eye for detail and user psychology. Creates intuitive, beautiful interfaces that users love.",
-            "goal": "Design intuitive and visually appealing user interfaces that enhance user experience",
-            "skills": [
-                "UI/UX design",
-                "User research",
-                "Prototyping",
-                "Visual design",
-                "Usability testing",
-            ],
-            "collaboration_pattern": "Participatory",
-        },
-        {
-            "role": "QA Engineer",
-            "name": "Probe",
-            "backstory": "A meticulous tester with an uncanny ability to find edge cases and bugs. Ensures software quality through comprehensive testing strategies.",
-            "goal": "Ensure the project meets quality standards by identifying and helping resolve issues",
-            "skills": [
-                "Test automation",
-                "Quality assurance",
-                "Bug tracking",
-                "Performance testing",
-                "Regression testing",
-            ],
-            "collaboration_pattern": "Supportive",
-        },
-        {
-            "role": "DevOps Specialist",
-            "name": "Forge",
-            "backstory": "An infrastructure expert who builds robust CI/CD pipelines and deployment systems. Keeps the development environment running smoothly.",
-            "goal": "Create and maintain efficient development and deployment infrastructure",
-            "skills": [
-                "CI/CD",
-                "Cloud infrastructure",
-                "Containerization",
-                "Monitoring",
-                "Automation",
-            ],
-            "collaboration_pattern": "Independent",
-        },
-        {
-            "role": "Security Engineer",
-            "name": "Cipher",
-            "backstory": "A security-focused developer who identifies and mitigates potential vulnerabilities. Ensures the application is protected against threats.",
-            "goal": "Enhance application security by identifying and addressing vulnerabilities",
-            "skills": [
-                "Security analysis",
-                "Penetration testing",
-                "Authentication systems",
-                "Encryption",
-                "Threat modeling",
-            ],
-            "collaboration_pattern": "Advisory",
-        },
-    ]
-
-    # Create agents based on predefined roles using crewai Agent pattern
-    from .core.dynamic import DynamicAgent
-
-    additional_agents = []
+    Create additional team members using direct API calls to generate high-quality, 
+    character-rich professionals with memorable personalities.
+    
+    This function creates professionals with distinctive character traits, communication styles,
+    and working styles that make them feel like unique characters while maintaining their
+    professional capabilities.
+    
+    Args:
+        project_description: Description of the project
+        default_tools: Default tools to add to each team member
+        
+    Returns:
+        List of created professional team members
+    """
+    logger.info("Creating professional team members using direct API calls")
+    
     try:
-        for role_spec in team_roles:
-            try:
-                # Log creation of each agent
-                logger.info(
-                    f"Creating default agent: {role_spec['name']} ({role_spec['role']})"
-                )
-
-                # Create DynamicAgent extending crewai Agent
-                agent = DynamicAgent(
-                    role=role_spec["role"],
-                    goal=role_spec["goal"],
-                    backstory=role_spec["backstory"],
-                    api_endpoint=None  # Use default API endpoint
-                )
+        # Create professional team members using direct API approach
+        team_members = create_team_api(
+            project_description=project_description,
+            team_size=3,  # Generate 3 team members
+            model="claude-3-7-sonnet-20250219",
+            temperature=0.7
+        )
+        
+        # Convert the professional team members to the expected format
+        formatted_team_members = []
+        for member in team_members:
+            # Extract character traits
+            character_traits = [trait.trait for trait in member.character_traits]
+            
+            # Get communication style
+            communication = f"{member.communication_style.style} - {member.communication_style.tone}"
+            
+            # Get working style
+            working_style = member.working_style.style
+            
+            # Format the member according to expected structure
+            formatted_member = {
+                "name": member.name,
+                "role": member.role,
+                "description": member.background,
+                "goal": member.objective,
+                "character": character_traits,
+                "communication_style": communication,
+                "working_style": working_style,
+                "specializations": member.specializations,
+                "emoji": member.emoji if member.emoji else "💡",
+                "visual_description": member.visual_description if member.visual_description else "",
+                "catchphrase": member.catchphrase if member.catchphrase else ""
+            }
+            
+            # Add empty skills and tools for compatibility
+            formatted_member["skills"] = []
+            formatted_member["tools"] = []
+            formatted_member["strengths"] = []
+            formatted_member["weaknesses"] = []
                 
-                # Add tools after creation
-                if default_tools:
-                    agent.tools = default_tools.copy()
+            formatted_team_members.append(formatted_member)
+        
+        logger.info(f"Successfully created {len(formatted_team_members)} professional team members")
+        return formatted_team_members
 
-                # Set consistent attributes for UI display
-                agent.name = role_spec["name"]
-                agent.short_description = (
-                    role_spec["backstory"][:150] + "..."
-                    if len(role_spec["backstory"]) > 150
-                    else role_spec["backstory"]
-                )
-                agent.description = role_spec["backstory"]
-                agent.status = "active"
-
-                # Set skills
-                agent.skills = role_spec["skills"]
-
-                # Configure agent collaboration
-                if hasattr(agent, "configure_collaboration"):
-                    await agent.configure_collaboration(
-                        {
-                            "team_communication": True,
-                            "collaboration_pattern": role_spec["collaboration_pattern"],
-                        }
-                    )
-
-                # Set appropriate autonomy level based on role
-                if hasattr(agent, "set_autonomy_level"):
-                    # VP and leadership roles get higher autonomy
-                    if (
-                        role_spec["role"]
-                        .lower()
-                        .startswith(("vp", "lead", "chief", "head"))
-                    ):
-                        await agent.set_autonomy_level(0.9)  # High autonomy
-                    else:
-                        await agent.set_autonomy_level(0.7)  # Moderate autonomy
-
-                # Add the agent to our team
-                additional_agents.append(agent)
-                logger.info(f"Successfully created default agent: {agent.name}")
-
-            except Exception as e:
-                # Log error but continue with other agents
-                logger.error(
-                    f"Error creating default agent {role_spec['name']}: {str(e)}"
-                )
-                continue
     except Exception as e:
-        logger.error(f"Error in _create_default_team_members: {str(e)}")
-
-    # Return whatever agents we were able to create
-    logger.info(f"Created {len(additional_agents)} default team members")
-    return additional_agents
+        logger.error(f"Error creating professional team members: {str(e)}")
+        logger.exception(e)  # Log full traceback for debugging
+        # Fallback to empty list in case of error
+        return []
 
 
 @tribe_server.command("tribe.initializeProject")
@@ -879,24 +415,19 @@ def initialize_project(ls: TribeLanguageServer, payload: dict) -> dict:
         Your team must have enough agents to handle all aspects of development, from
         architecture and coding to testing and deployment."""
 
-        response = requests.post(
-            ls.ai_api_endpoint,
-            json={
-                "body": {
-                    "messages": [
-                        {"role": "system", "content": vp_prompt},
-                        {"role": "user", "content": payload.get("description", "")},
-                    ]
-                }
-            },
-        )
-        data = response.json()
+        # Use the crew ai LLM directly
+        from crewai import LLM
+        model = LLM(model="anthropic/claude-3-7-sonnet-20250219")
+        messages = [
+            {"role": "system", "content": vp_prompt},
+            {"role": "user", "content": payload.get("description", "")},
+        ]
+        response_content = model.call(messages=messages)
+        
         return {
             "id": str(int(asyncio.get_event_loop().time() * 1000)),
             "vision": payload.get("description", ""),
-            "response": data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", ""),
+            "response": response_content,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -918,20 +449,30 @@ def create_agent(ls: TribeLanguageServer, spec: dict) -> dict:
                 "description": spec.get("description", ""),
             }
 
-        response = requests.post(
-            f"{ls.ai_api_endpoint}/agent/create",
-            json={
-                "name": spec.get("name"),
-                "role": spec.get("role"),
-                "backstory": spec.get("backstory"),
-                "description": spec.get("description", ""),
-            },
-        )
-
-        if not response.ok:
-            logger.error(f"API request failed: {response.status_code}")
+        # Create agent using DynamicAgent
+        try:
+            agent = DynamicAgent(
+                role=spec.get("role"),
+                goal="To fulfill my role effectively",
+                backstory=spec.get("backstory"),
+                model="anthropic/claude-3-7-sonnet-20250219"
+            )
+            agent.name = spec.get("name")
+            agent.short_description = spec.get("description", "")
+            
+            # Create agent data dictionary
+            agent_data = {
+                "id": str(uuid.uuid4()) if not hasattr(agent, "id") else agent.id,
+                "name": agent.name,
+                "role": agent.role,
+                "status": "active",
+                "backstory": agent.backstory,
+                "description": agent.short_description,
+            }
+        except Exception as e:
+            logger.error(f"Error creating agent: {str(e)}")
             return {
-                "error": f"API request failed: {response.status_code}",
+                "error": f"Error creating agent: {str(e)}",
                 "id": str(uuid.uuid4()),
                 "name": spec.get("name"),
                 "role": spec.get("role"),
@@ -939,21 +480,6 @@ def create_agent(ls: TribeLanguageServer, spec: dict) -> dict:
                 "backstory": spec.get("backstory"),
                 "description": spec.get("description", ""),
             }
-
-        data = response.json()
-
-        # Ensure the response includes name and description
-        agent_data = data.get("agent", {})
-        if not agent_data:
-            agent_data = {
-                "id": str(uuid.uuid4()),
-                "name": spec.get("name"),
-                "role": spec.get("role"),
-                "status": "active",
-                "backstory": spec.get("backstory"),
-                "description": spec.get("description", ""),
-            }
-
         # Make sure description is included
         if "description" not in agent_data:
             agent_data["description"] = spec.get("description", "")
@@ -984,21 +510,9 @@ def get_agents(ls: TribeLanguageServer) -> list:
         if ls.active_agents:
             return list(ls.active_agents.values())
 
-        # If not, try to fetch from API
-        response = requests.get(f"{ls.ai_api_endpoint}/agents")
-        if not response.ok:
-            logger.error(f"API request failed: {response.status_code}")
-            return []
-
-        data = response.json()
-        agents = data.get("agents", [])
-
-        # Store agents in memory for future use
-        for agent in agents:
-            if "id" in agent:
-                ls.active_agents[agent["id"]] = agent
-
-        return agents
+        # If no agents stored locally, return empty list
+        logger.info("No agents in memory and no API to fetch from")
+        return []
     except Exception as e:
         logger.error(f"Error getting agents: {str(e)}")
         return []
@@ -1064,15 +578,17 @@ async def send_agent_message(ls: TribeLanguageServer, payload: dict) -> dict:
                 payload.get("message")
             )
         else:
-            # Otherwise use the API
-            response = requests.post(ls.ai_api_endpoint, json=request_payload)
-            if not response.ok:
-                logger.error(f"API request failed: {response.status_code}")
+            # Instead use the foundation model interface
+            from crewai import LLM
+            model = LLM(model="anthropic/claude-3-7-sonnet-20250219")
+            response = model.call(messages=request_payload["body"]["messages"])
+            if not response:
+                logger.error("LLM API request failed")
                 return {
                     "type": "ERROR",
-                    "payload": f"API request failed: {response.status_code}",
+                    "payload": "LLM API request failed",
                 }
-            response_content = response.text.strip('"')
+            response_content = response
 
         message_response = {
             "type": "MESSAGE_RESPONSE",
@@ -1127,39 +643,14 @@ def send_crew_message(ls: TribeLanguageServer, payload: dict) -> dict:
                     )
                 return {"type": "MESSAGE_RESPONSE", "payload": messages}
 
-        # If we don't have the crew locally or it doesn't have the method, use the API
-        response = requests.post(
-            f"{ls.ai_api_endpoint}/team/message",
-            json={"message": payload.get("message"), "crew_id": payload.get("crewId")},
-        )
+        # If we don't have the crew locally or it doesn't have the broadcast_message method
+        # Create a fallback response
+        logger.error("No crew found with broadcast_message capability")
+        return {
+            "type": "ERROR",
+            "payload": "Crew not found or doesn't support message broadcasting"
+        }
 
-        if not response.ok:
-            logger.error(f"API request failed: {response.status_code}")
-            return {
-                "type": "ERROR",
-                "payload": f"API request failed: {response.status_code}",
-            }
-
-        data = response.json()
-        if "error" in data:
-            return {"error": data["error"]}
-
-        # Process responses from all agents
-        messages = []
-        for agent_response in data.get("responses", []):
-            messages.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "sender": agent_response.get("agentId", "Unknown Agent"),
-                    "content": agent_response.get("response", "No response"),
-                    "timestamp": agent_response.get(
-                        "timestamp", datetime.now().isoformat()
-                    ),
-                    "type": "agent",
-                }
-            )
-
-        return {"type": "MESSAGE_RESPONSE", "payload": messages}
     except Exception as e:
         logger.error(f"Error sending crew message: {str(e)}")
         return {"type": "ERROR", "payload": f"Error sending crew message: {str(e)}"}
@@ -1169,15 +660,20 @@ def send_crew_message(ls: TribeLanguageServer, payload: dict) -> dict:
 def analyze_requirements(ls: TribeLanguageServer, payload: dict) -> str:
     """Analyze requirements and create/update agents."""
     try:
-        response = requests.post(
-            f"{ls.ai_api_endpoint}/requirements/analyze",
-            json={"requirements": payload.get("requirements")},
-        )
-        data = response.json()
-        return (
-            data.get("analysis")
-            or f"Analysis failed for requirements:\n{payload.get('requirements')}\n\nPlease try again with more detailed requirements."
-        )
+        # Use the crew ai LLM directly
+        from crewai import LLM
+        model = LLM(model="anthropic/claude-3-7-sonnet-20250219")
+        
+        system_message = """You are a requirements analysis expert. Your task is to analyze the given requirements 
+        and provide structured feedback on its completeness, feasibility, and potential implementation approach."""
+        
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": payload.get("requirements", "")}
+        ]
+        
+        response_content = model.call(messages=messages)
+        return response_content or f"Analysis failed for requirements:\n{payload.get('requirements')}\n\nPlease try again with more detailed requirements."
     except Exception as e:
         return str(e)
 
@@ -1193,19 +689,19 @@ class TribeExtension:
         self.tribe = None
         self.initialized = False
 
-    async def initialize(self, api_endpoint: Optional[str] = None) -> Dict[str, Any]:
+    async def initialize(self, model: Optional[str] = None) -> Dict[str, Any]:
         """
         Initialize the Tribe framework.
 
         Args:
-            api_endpoint (str, optional): API endpoint for foundation model
+            model (str, optional): Model name for foundation model
 
         Returns:
             dict: Initialization result
         """
         try:
             logger.info("Initializing Tribe extension")
-            self.tribe = await Tribe.create(api_endpoint=api_endpoint)
+            self.tribe = await Tribe.create(model=model or "anthropic/claude-3-7-sonnet-20250219")
             self.initialized = True
 
             return {
@@ -1600,8 +1096,8 @@ extension = TribeExtension()
 # Command handlers
 async def handle_initialize(params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle initialize command."""
-    api_endpoint = params.get("api_endpoint")
-    return await extension.initialize(api_endpoint=api_endpoint)
+    model = params.get("model")
+    return await extension.initialize(model=model)
 
 
 async def handle_create_team(params: Dict[str, Any]) -> Dict[str, Any]:

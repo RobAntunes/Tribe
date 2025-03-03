@@ -16,6 +16,8 @@ import requests
 from ..core.foundation_model import FoundationModelInterface
 import time
 import enum
+import re
+from .config import config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +54,7 @@ class TeamValidationResult(BaseModelWithGet):
 
 class SystemConfig(BaseModelWithGet):
     """Core system configuration"""
-    api_endpoint: str = Field(..., description="API endpoint for AI operations")
+    model: str = Field(default="anthropic/claude-3-7-sonnet-20250219", description="LLM model to use for AI operations")
     collaboration_mode: Literal["SOLO", "HYBRID", "FULL"] = Field(default="HYBRID")
     process_type: Literal["sequential", "hierarchical"] = Field(default="hierarchical")
     task_execution: TaskExecutionConfig = Field(default_factory=TaskExecutionConfig)
@@ -275,7 +277,7 @@ class AgentState(BaseModelWithGet):
     collaboration_mode: str = Field(default="HYBRID")
     current_team: Optional[str] = Field(default=None)
     status: str = Field(default="ready")
-    api_endpoint: str = Field(default="")
+    model: str = Field(default="anthropic/claude-3-7-sonnet-20250219")
     tools_list: List[Any] = Field(default_factory=list)
     project_context: Dict[str, Any] = Field(default_factory=dict)
 
@@ -289,7 +291,7 @@ class AgentState(BaseModelWithGet):
             "collaboration_mode": self.collaboration_mode,
             "current_team": self.current_team,
             "status": self.status,
-            "api_endpoint": self.api_endpoint,
+            "model": self.model,
             "tools": self.tools_list
         }
 
@@ -299,35 +301,29 @@ class VPEngineeringModel(TeamResponse):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class DynamicAgent(Agent):
-    """Specialized agent for bootstrapping teams and analyzing project requirements.
-    This agent serves as both the VP of Engineering and the genesis agent for the system."""
-    
-    # Define the system_manager field as a private attribute
-    _system_manager: Optional[SystemAccessManager] = PrivateAttr(default=None)
-    
-    # Define name and short_description as attributes
-    name: str = ""
-    short_description: str = ""
-    api_endpoint: str = ""
-    status: str = "ready"
-    
-    def __init__(self, role: str = "VP of Engineering", goal: str = None, backstory: str = None, api_endpoint: str = None):
-        """Initialize DynamicAgent with API endpoint"""
-        super().__init__(
-            role=role,
-            goal=goal or f"Create and evolve an optimal agent ecosystem",
-            backstory=backstory or "You are the VP of Engineering responsible for bootstrapping the AI ecosystem.",
-            tools=[],  # Initialize with empty tools list
-            allow_delegation=True
-        )
-        
-        # Initialize name and short_description
-        self.name = role
-        self.short_description = f"Specialized agent for {role.lower()} tasks"
-        
-        # Set API endpoint to our teq lambda URL
-        self.api_endpoint = api_endpoint or os.environ.get('AI_API_ENDPOINT', 'https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/')
+class DynamicAgent:
+    """Specialized agent for bootstrapping teams and analyzing project requirements."""
+
+    def __init__(self, role: str, goal: str, backstory: str, model: Optional[str] = None):
+        """
+        Initialize the dynamic agent.
+
+        Args:
+            role: The agent's role
+            goal: The agent's goal
+            backstory: The agent's backstory
+            model: Optional model name override
+        """
+        self.model = model or "anthropic/claude-3-7-sonnet-20250219"
+            
+        self.role = role
+        self.goal = goal
+        self.backstory = backstory
+        self._state = {"project_context": {}}
+        self._system_manager = None
+        self.name = ""
+        self.short_description = ""
+        self.status = "active"
         
         # Initialize collaboration tasks list
         self._collaboration_tasks = []
@@ -335,7 +331,7 @@ class DynamicAgent(Agent):
         # Initialize agent state
         self._state = {
             "status": "initializing",
-            "api_endpoint": api_endpoint,
+            "model": self.model,
             "initialization_complete": False,
             "project_context": {},
             "role_context": {
@@ -356,67 +352,35 @@ class DynamicAgent(Agent):
         self.tools.extend(self._system_manager.get_tools())
     
     async def execute_task(self, task_input):
-        """
-        Execute a task with the agent.
-        
-        Args:
-            task_input: Task to execute, can be a Task object or a dictionary.
-            
-        Returns:
-            Output of the agent
-        """
-        from crewai import Task
-        
+        """Execute a task using the foundation model."""
         try:
-            # Check if this is an initialization task - if so, return a quick response
-            if isinstance(task_input, dict) and task_input.get("description", "").lower().startswith("initialize"):
-                logging.info(f"Handling initialization task for {self.role} with quick response")
-                return {
-                    "status": "success",
-                    "message": f"Initialization complete for {self.role}",
-                    "agent_id": self.id,
-                    "timestamp": time.time()
-                }
+            # Initialize foundation model interface
+            foundation_model = FoundationModelInterface(model=self.model)
             
-            # If task_input is a dictionary, convert it to a Task object
-            if isinstance(task_input, dict):
-                # Extract task parameters from the dictionary
-                description = task_input.get("description", "")
-                expected_output = task_input.get("expected_output", "")
-                context = task_input.get("context", {})
+            # Handle different task input types
+            if isinstance(task_input, str):
+                # If task_input is a string, treat it as a task description
                 
-                # Create a Task object
-                task = Task(
-                    description=description,
-                    expected_output=expected_output,
-                    agent=self
-                )
-                
-                # Add context as an attribute to the task
-                task.context = context
-                
-                # Check cache for similar tasks
-                cache_key = f"{self.role}_{description}_{str(context)[:100]}"
-                foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
-                
-                if cache_key in foundation_model.cache:
-                    logging.info(f"Using cached response for task: {description[:50]}...")
-                    return foundation_model.cache[cache_key]
-                
-                # Create a system prompt and user prompt for the foundation model
+                # Create a system prompt for the foundation model
                 system_prompt = f"""You are {self.name}, a {self.role} with the following backstory:
                 {getattr(self, 'backstory', 'An AI agent specializing in your role.')}
                 
                 Your task is to complete the assigned work to the best of your ability, following any format requirements.
                 """
                 
+                # Extract expected output from the task description if possible
+                expected_output = ""
+                if "expected output" in task_input.lower():
+                    # Try to extract the expected output section
+                    match = re.search(r"expected output:?\s*(.*?)(?:\n\n|\Z)", task_input, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        expected_output = match.group(1).strip()
+                
+                # Create a user prompt for the foundation model
                 user_prompt = f"""# Task for {self.role}
                 
                 ## Description
-                {description}
-                
-                ## Context
-                {context}
+                {task_input}
                 
                 ## Expected Output
                 {expected_output}
@@ -425,7 +389,12 @@ class DynamicAgent(Agent):
                 """
                 
                 # Check if this is a special task that requires structured output
-                needs_structured_output = "json" in expected_output.lower() or "format" in expected_output.lower()
+                # Look for JSON keywords or format specifications in the task or expected output
+                needs_structured_output = (
+                    "json" in task_input.lower() or 
+                    "format" in task_input.lower() or
+                    (expected_output and ("json" in expected_output.lower() or "format" in expected_output.lower()))
+                )
                 
                 # Query the foundation model with a timeout
                 try:
@@ -441,7 +410,7 @@ class DynamicAgent(Agent):
                     return f"Error executing task: {str(e)}"
             else:
                 # If task_input is already a Task object, use our custom foundation model
-                foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+                foundation_model = FoundationModelInterface(model=self.model)
                 
                 # Check cache for similar tasks
                 cache_key = f"{self.role}_{task_input.description}_{getattr(task_input, 'context', {})}"
@@ -472,7 +441,13 @@ class DynamicAgent(Agent):
                 """
                 
                 # Check if this is a special task that requires structured output
-                needs_structured_output = "json" in task_input.expected_output.lower() or "format" in task_input.expected_output.lower()
+                # Look for JSON keywords or format specifications in the expected output
+                needs_structured_output = (
+                    "json" in task_input.expected_output.lower() or 
+                    "format" in task_input.expected_output.lower() or
+                    hasattr(task_input, 'output_json') or
+                    hasattr(task_input, 'output_pydantic')
+                )
                 
                 # Query the foundation model with a timeout
                 try:
@@ -566,7 +541,7 @@ Your summary should:
 The human should get a comprehensive understanding of the team's collective output without needing to read each individual message."""
         
         # Use foundation model to consolidate
-        foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+        foundation_model = FoundationModelInterface(model=self.model)
         consolidated_message = await foundation_model.query_model_async(prompt)
         
         return consolidated_message
@@ -656,9 +631,9 @@ The human should get a comprehensive understanding of the team's collective outp
             # Add timeout protection
             async def vp_creation_with_timeout():
                 try:
-                    # Always use the teq lambda endpoint for AI operations
-                    api_endpoint = os.environ.get('AI_API_ENDPOINT', "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/")
-                    logging.info(f"Using lambda API endpoint: {api_endpoint}")
+                    # Set the default model to use for AI operations
+                    model = "anthropic/claude-3-7-sonnet-20250219"
+                    logging.info(f"Using model: {model}")
                     
                     # Initialize VP of Engineering with all available tools
                     vp = cls(
@@ -742,7 +717,7 @@ The human should get a comprehensive understanding of the team's collective outp
                     backstory="""Experienced VP of Engineering with technical leadership expertise and excellent
                     communication skills. Acts as the primary touchpoint between the team and humans,
                     ensuring clear information flow and consolidating team outputs into actionable insights.""",
-                    api_endpoint=os.environ.get('AI_API_ENDPOINT', "https://teqheaidyjmkjwkvkde65rfmo40epndv.lambda-url.eu-west-3.on.aws/")
+                    model="anthropic/claude-3-7-sonnet-20250219"
                 )
                 minimal_vp.name = "Tank - VP of Engineering"
                 minimal_vp.short_description = f"VP of Engineering who coordinates the team's efforts on {project_description} and serves as the primary communication hub with humans"
@@ -766,52 +741,50 @@ The human should get a comprehensive understanding of the team's collective outp
             cls._vp_creation_in_progress = False
 
     async def analyze_project(self, project_description: str) -> Dict[str, Any]:
-        """Analyze project requirements and determine optimal team structure using the lambda endpoint"""
+        """Analyze a project description and create a team blueprint."""
         try:
-            logging.info(f"Analyzing project requirements: {project_description}")
+            # Create a foundation model interface
+            foundation_model = FoundationModelInterface(model=self.model)
             
-            # Initialize foundation model interface to call the lambda endpoint
-            foundation_model = FoundationModelInterface(api_endpoint=self.api_endpoint)
+            # Create a system prompt for the VP of Engineering
+            system_prompt = f"""You are a structured data extraction system specialized in software project analysis.
             
-            # Create a system prompt that will instruct the VP of Engineering
-            system_prompt = """You are Tank, the VP of Engineering, responsible for creating an optimal set of 
-            AI agents for a software development project. Based on the project description, you need to:
+            You are {self.name}, a VP of Engineering with the following backstory:
+            {getattr(self, 'backstory', 'An experienced technical leader with expertise in team building and project planning.')}
             
-            1. Analyze the requirements and determine the ideal team composition
-            2. Design a team of specialized AI agents with complementary skills
-            3. For each agent, create a character-like name (e.g. Sparks, Nova, Cipher, etc.) and description
-            4. Define initial tasks for each agent 
-            5. Define the team structure, hierarchy, and communication patterns
-            
-            Your response MUST follow the TeamResponse pydantic model structure exactly.
+            Your response will be parsed by a machine learning system, so it's critical that your output follows these rules:
+            1. Respond ONLY with a valid JSON object.
+            2. Do not include any explanations, markdown formatting, or text outside the JSON.
+            3. Do not use ```json code blocks or any other formatting.
+            4. Ensure all JSON keys and values are properly quoted and formatted.
+            5. Do not include any comments within the JSON.
+            6. The JSON must be parseable by the standard json.loads() function.
             """
             
-            # Create a user prompt with the specific project
-            user_prompt = f"""Create an optimal set of agents for this project:
+            # Create a user prompt for the project analysis
+            user_prompt = f"""Analyze this project description and create a comprehensive team blueprint:
+
+            Project Description:
+            {project_description}
             
-            Project Description: {project_description}
+            Create a complete team structure with the following components:
             
-            For each agent, provide:
-            1. A character-like name (e.g. Sparks, Nova, Cipher, etc.) that reflects their personality or function
-            2. A clear role definition
-            3. A detailed backstory
-            4. Their primary goals
-            5. A set of initial tasks
+            1. A clear project vision statement
+            2. A team of 3-7 specialized AI agents with complementary skills
+            3. A set of initial tasks for each agent
+            4. Required tools for the project
+            5. Workflow patterns for team collaboration
             
-            Remember, each agent should have a distinctive character-like name, not just their role (e.g., "Nova" not just "Designer").
-            
-            IMPORTANT: Your response must follow this EXACT TeamResponse model structure:
-            
-            ```python
-            class TeamResponse:
-                vision: str # Project vision statement
-                agents: List[AgentModel] # List of agents with name, role, backstory, goal, short_description
-                tasks: List[TaskModel] # List of initial tasks with description, expected_output, agent
+            Your response must follow this JSON structure:
+            ```
+            {
+                vision: string, # Project vision statement
+                agents: List[AgentModel] # List of agents with name, role, backstory, goal
+                tasks: List[TaskModel] # List of tasks with description, expected_output, agent
                 tools: List[ToolModel] # List of tools needed with name, description, capabilities
                 flows: List[FlowModel] # List of workflow flows with name, description, steps
+            }
             ```
-            
-            Return ONLY valid JSON that matches this model exactly, with no additional explanation text.
             """
             
             # Call lambda through our foundation model interface
@@ -1515,7 +1488,7 @@ class DynamicCrew:
             role=role,
             goal=goal,
             backstory=backstory,
-            api_endpoint=self.config.get('api_endpoint')
+            model=self.config.get('model')
         )
         
         # Set additional properties

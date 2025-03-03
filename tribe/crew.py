@@ -2,6 +2,7 @@
 Tribe - Main crew implementation for the Tribe framework
 """
 
+import time
 from typing import Dict, Any, Optional, List, Union
 from crewai import Crew, Agent, Task, Process
 from .core.dynamic import DynamicCrew, DynamicAgent, SystemConfig
@@ -21,17 +22,17 @@ class Tribe:
     """
     _instance = None
     
-    def __init__(self, api_endpoint: Optional[str] = None):
+    def __init__(self, model: str = "anthropic/claude-3-7-sonnet-20250219"):
         """
         Initialize the Tribe instance.
         
         Args:
-            api_endpoint (str, optional): API endpoint for foundation model
+            model (str, optional): Model name to use with crew ai
         """
         self._dynamic_crew = None
         self._vp_of_engineering = None
-        self._api_endpoint = api_endpoint or os.environ.get("TRIBE_API_ENDPOINT", "https://api.tribe.ai/v1")
-        self._foundation_model = FoundationModelInterface(api_endpoint=self._api_endpoint)
+        self._model = model
+        self._foundation_model = FoundationModelInterface(model=model)
         self._learning_system = LearningSystem()
         self._feedback_system = FeedbackSystem()
         self._reflection_system = ReflectionSystem()
@@ -59,7 +60,7 @@ class Tribe:
             # Create dynamic crew if it doesn't exist
             if self._dynamic_crew is None:
                 config = SystemConfig(
-                    api_endpoint=self._api_endpoint,
+                    model=self._model,
                     collaboration_mode="HYBRID",
                     process_type="hierarchical"
                 )
@@ -95,17 +96,17 @@ class Tribe:
             raise
         
     @classmethod
-    async def create(cls, api_endpoint: Optional[str] = None) -> 'Tribe':
+    async def create(cls, model: Optional[str] = None) -> 'Tribe':
         """
         Create and initialize a Tribe instance.
         
         Args:
-            api_endpoint (str, optional): API endpoint for foundation model
+            model (str, optional): Model name to use with crew ai
             
         Returns:
             Tribe: The initialized Tribe instance
         """
-        instance = cls(api_endpoint=api_endpoint)
+        instance = cls(model=model)
         await instance.initialize()
         return instance
         
@@ -119,7 +120,7 @@ class Tribe:
         """
         if self._dynamic_crew is None:
             config = SystemConfig(
-                api_endpoint=self._api_endpoint,
+                model=self._model,
                 collaboration_mode="HYBRID",
                 process_type="hierarchical"
             )
@@ -351,7 +352,7 @@ class Tribe:
                     role=spec["role"],
                     goal=spec["goal"],
                     backstory=spec["backstory"],
-                    api_endpoint=self._api_endpoint
+                    model=self._model
                 )
                 
                 # Set name and description

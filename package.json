@@ -153,9 +153,9 @@
           "scope": "resource",
           "type": "string"
         },
-        "tribe.apiEndpoint": {
-          "default": "",
-          "description": "API endpoint for the foundation model.",
+        "tribe.model": {
+          "default": "anthropic/claude-3-7-sonnet-20250219",
+          "description": "Model to use with the foundation model.",
           "scope": "resource",
           "type": "string"
         },
@@ -176,6 +176,12 @@
           "description": "Enable the reflection system for self-improvement.",
           "scope": "resource",
           "type": "boolean"
+        },
+        "tribe.apiKey": {
+          "default": "",
+          "description": "Anthropic API key for the foundation model (kept in user settings only).",
+          "scope": "application",
+          "type": "string"
         }
       }
     },
@@ -183,6 +189,14 @@
       {
         "command": "tribe.restart",
         "title": "Tribe: Restart Server"
+      },
+      {
+        "command": "tribe.showOutput",
+        "title": "Tribe: Show Output Log"
+      },
+      {
+        "command": "tribe.showDiagnostics",
+        "title": "Tribe: Show Diagnostics"
       },
       {
         "command": "tribe.initialize",
@@ -235,6 +249,10 @@
       {
         "command": "tribe.queryModel",
         "title": "Tribe: Query Foundation Model"
+      },
+      {
+        "command": "tribe.setApiKey",
+        "title": "Tribe: Set Anthropic API Key"
       }
     ]
   },
