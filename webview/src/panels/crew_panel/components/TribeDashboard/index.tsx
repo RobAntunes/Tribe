@@ -18,6 +18,7 @@ import {
   CheckSquare,
   X
 } from 'lucide-react';
+import { EnvironmentManager } from '../EnvironmentManager';
 import { DiffNavigationPortal } from '../DiffNavigationPortal/index';
 import { ConflictResolution } from '../ConflictResolution';
 import { CollaborativeAnnotations } from '../CollaborativeAnnotations';
@@ -501,6 +502,24 @@ export const TribeDashboard: React.FC<TribeDashboardProps> = ({ initialTab = 'ch
                 <option value="split">Split</option>
               </select>
             </div>
+          </div>
+        </div>
+        
+        <div className="settings-section">
+          <h3 className="settings-section-title">
+            <Settings size={16} />
+            Environment Variables
+          </h3>
+          
+          <div className="environment-manager-container">
+            <EnvironmentManager 
+              onSave={(variables) => {
+                vscode.postMessage({
+                  type: 'UPDATE_ENV_VARIABLES',
+                  payload: { variables }
+                });
+              }}
+            />
           </div>
         </div>
         

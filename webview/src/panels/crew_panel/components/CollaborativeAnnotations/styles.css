@@ -4,6 +4,9 @@
   height: 100%;
   padding: 1.5rem;
   overflow-y: auto;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
 }
 
 .annotations-header {
@@ -13,10 +16,12 @@
 .annotations-header h3 {
   margin: 0;
   font-size: 1.25rem;
+  color: var(--vscode-foreground);
 }
 
 .add-annotation {
-  background-color: #f9fafb;
+  background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
   border-radius: 0.5rem;
   padding: 1.25rem;
   margin-bottom: 2rem;

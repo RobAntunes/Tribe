@@ -68,6 +68,8 @@
     flex-direction: column;
     max-width: 85%;
     animation: fadeIn 0.3s ease-out;
+    margin-bottom: var(--space-4);
+    position: relative;
 }
 
 @keyframes fadeIn {
@@ -95,6 +97,7 @@
     justify-content: space-between;
     margin-bottom: var(--space-1);
     font-size: var(--font-size-xs);
+    padding: 0 var(--space-2);
 }
 
 .sender {
@@ -115,18 +118,57 @@
     position: relative;
     overflow-wrap: break-word;
     word-break: break-word;
+    box-shadow: var(--shadow-sm);
 }
 
 .message.user .message-content {
-    background-color: color-mix(in srgb, var(--tribe-accent) 15%, var(--vscode-editor-background) 85%);
+    background: linear-gradient(135deg, 
+        color-mix(in srgb, var(--tribe-accent) 20%, var(--vscode-editor-background) 80%),
+        color-mix(in srgb, var(--tribe-accent) 30%, var(--vscode-editor-background) 70%)
+    );
     color: var(--vscode-foreground);
     border-top-right-radius: var(--radius-xs);
+    margin-left: var(--space-6);
+}
+
+.message.user .message-content::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -10px;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, 
+        color-mix(in srgb, var(--tribe-accent) 25%, var(--vscode-editor-background) 75%),
+        transparent 50%
+    );
+    border-radius: 0 0 0 20px;
+    clip-path: polygon(0 0, 0% 100%, 100% 0);
 }
 
 .message.agent .message-content {
-    background-color: color-mix(in srgb, var(--tribe-primary) 15%, var(--vscode-editor-background) 85%);
+    background: linear-gradient(135deg, 
+        color-mix(in srgb, var(--tribe-primary) 30%, var(--vscode-editor-background) 70%),
+        color-mix(in srgb, var(--tribe-primary) 20%, var(--vscode-editor-background) 80%)
+    );
     color: var(--vscode-foreground);
     border-top-left-radius: var(--radius-xs);
+    margin-right: var(--space-6);
+}
+
+.message.agent .message-content::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -10px;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(225deg, 
+        color-mix(in srgb, var(--tribe-primary) 25%, var(--vscode-editor-background) 75%),
+        transparent 50%
+    );
+    border-radius: 0 0 20px 0;
+    clip-path: polygon(100% 0, 100% 100%, 0 0);
 }
 
 .message.system .message-content {
@@ -134,6 +176,9 @@
     color: var(--vscode-foreground);
     border-radius: var(--radius-md);
     font-style: italic;
+    margin: 0 var(--space-4);
+    text-align: center;
+    border: 1px dashed color-mix(in srgb, var(--tribe-secondary) 30%, transparent 70%);
 }
 
 .message-actions {
@@ -210,17 +255,60 @@
 }
 
 .button.primary {
-    background-color: var(--tribe-primary);
+    background: linear-gradient(135deg, var(--tribe-primary), var(--tribe-primary-dark));
     color: white;
 }
 
 .button.primary:hover {
-    background-color: var(--tribe-primary-dark);
+    background: linear-gradient(135deg, var(--tribe-primary-dark), var(--tribe-primary));
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.button.primary:active {
+    transform: translateY(0);
+}
+
+.button.primary.send-button {
+    width: 40px;
+    height: 40px;
+    padding: var(--space-2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-normal) var(--transition-ease);
 }
 
 .button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Empty chat state */
+.empty-chat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--vscode-descriptionForeground);
+    padding: var(--space-6);
+    text-align: center;
+}
+
+.empty-chat-icon {
+    margin-bottom: var(--space-4);
+    opacity: 0.6;
+    color: var(--tribe-primary);
+}
+
+.empty-chat-text {
+    font-size: var(--font-size-sm);
+    max-width: 280px;
 }
 
 .loading-indicator-container {

@@ -743,3 +743,22 @@
     border-bottom: 1px solid var(--vscode-panel-border);
   }
 }
+
+.environment-manager-container {
+  margin-top: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.environment-manager-container .environment-manager {
+  border-radius: 0;
+  padding: var(--space-3);
+}
+
+.environment-manager-container .env-header {
+  margin-bottom: var(--space-3);
+}
+
+.environment-manager-container .env-info {
+  margin-top: var(--space-3);
+}

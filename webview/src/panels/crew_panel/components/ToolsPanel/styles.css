@@ -14,7 +14,7 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--space-3) var(--space-4);
-  background-color: color-mix(in srgb, var(--vscode-editor-background) 98%, var(--tribe-info) 2%);
+  background-color: var(--vscode-editor-background);
   border-bottom: 1px solid var(--vscode-panel-border);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
@@ -82,6 +82,9 @@
   padding: var(--space-4);
   overflow: auto;
   background-color: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 /* Toolbar */

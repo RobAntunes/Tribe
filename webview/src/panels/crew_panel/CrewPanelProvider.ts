@@ -309,6 +309,22 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
             case 'createCheckpoint':
                 await this._createCheckpoint(message.payload.description);
                 break;
+            // Environment variable management
+            case 'GET_ENV_FILES':
+                await this._getEnvFiles();
+                break;
+            case 'GET_ENV_VARIABLES':
+                await this._getEnvVariables(message.payload?.filePath);
+                break;
+            case 'SAVE_ENV_FILE':
+                await this._saveEnvFile(message.payload.filePath, message.payload.content);
+                break;
+            case 'SHOW_INPUT_BOX':
+                await this._showInputBox(message.payload);
+                break;
+            case 'RESTART_EXTENSION':
+                await this._restartExtension();
+                break;
             default:
                 console.log('Unknown message type:', message.type);
         }
@@ -345,18 +361,24 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                 console.log('Loaded agents:', agents);
                 this._currentAgents = agents;
                 
+                // Make sure each agent has a name (use role if name is missing)
+                const agentsWithNames = agents.map(agent => ({
+                    ...agent,
+                    name: agent.name || agent.role
+                }));
+                
                 // Update the UI with the agents
                 this._view?.webview.postMessage({ 
                     type: 'AGENTS_LOADED', 
-                    payload: agents 
+                    payload: agentsWithNames 
                 });
                 
                 // Also send a project state update to make sure the UI updates
                 this._view?.webview.postMessage({
                     type: 'PROJECT_STATE',
                     payload: {
-                        agents: agents,
-                        activeAgents: agents
+                        agents: agentsWithNames,
+                        activeAgents: agentsWithNames
                     }
                 });
             }
@@ -1126,17 +1148,182 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
         }
     }
     
+    // Environment variable management methods
+    private async _getEnvFiles() {
+        try {
+            // Use the EnvironmentManager to get the available .env files
+            const envManager = (await vscode.commands.executeCommand('tribe.getEnvironmentManager')) as any;
+            if (!envManager) {
+                throw new Error('Could not get environment manager');
+            }
+            
+            const envFiles = envManager.scanEnvFiles();
+            
+            // Send the result back to the webview
+            this._view?.webview.postMessage({
+                type: 'ENV_FILES_RESULT',
+                payload: {
+                    envFiles
+                }
+            });
+        } catch (error) {
+            console.error('Error getting env files:', error);
+            this._view?.webview.postMessage({
+                type: 'ERROR',
+                payload: {
+                    message: `Failed to get environment files: ${error}`
+                }
+            });
+        }
+    }
+    
+    private async _getEnvVariables(filePath?: string) {
+        try {
+            // If no file path is provided, use default .env
+            const envPath = filePath || '.env';
+            
+            // Use the EnvironmentManager to get variables for the specified file
+            const envManager = (await vscode.commands.executeCommand('tribe.getEnvironmentManager')) as any;
+            if (!envManager) {
+                throw new Error('Could not get environment manager');
+            }
+            
+            const variables = envManager.getEnvVariables(envPath);
+            
+            // Send the result back to the webview
+            this._view?.webview.postMessage({
+                type: 'ENV_VARIABLES_RESULT',
+                payload: {
+                    variables
+                }
+            });
+        } catch (error) {
+            console.error('Error getting env variables:', error);
+            this._view?.webview.postMessage({
+                type: 'ERROR',
+                payload: {
+                    message: `Failed to get environment variables: ${error}`
+                }
+            });
+        }
+    }
+    
+    private async _saveEnvFile(filePath: string, content: string) {
+        try {
+            // Use the EnvironmentManager to save the content to the specified file
+            const envManager = (await vscode.commands.executeCommand('tribe.getEnvironmentManager')) as any;
+            if (!envManager) {
+                throw new Error('Could not get environment manager');
+            }
+            
+            const success = envManager.saveEnvVariables(filePath, content);
+            
+            // Send the result back to the webview
+            this._view?.webview.postMessage({
+                type: 'ENV_SAVE_RESULT',
+                payload: {
+                    success,
+                    filePath
+                }
+            });
+            
+            // If successful, restart the server to apply the new environment variables
+            if (success) {
+                vscode.window.showInformationMessage('Environment variables saved. Changes will take effect after restarting the extension.');
+            }
+        } catch (error) {
+            console.error('Error saving env file:', error);
+            this._view?.webview.postMessage({
+                type: 'ERROR',
+                payload: {
+                    message: `Failed to save environment file: ${error}`
+                }
+            });
+        }
+    }
+    
+    private async _showInputBox(payload: any) {
+        try {
+            // Show an input box for the user to enter a value
+            const result = await vscode.window.showInputBox({
+                prompt: payload.prompt || 'Enter a value',
+                placeHolder: payload.placeHolder || '',
+                value: payload.value || '',
+                ignoreFocusOut: true
+            });
+            
+            if (result) {
+                // If we're creating a new .env file, save it with default content
+                if (payload.prompt?.includes('.env')) {
+                    // Get the environment manager
+                    const envManager = (await vscode.commands.executeCommand('tribe.getEnvironmentManager')) as any;
+                    if (!envManager) {
+                        throw new Error('Could not get environment manager');
+                    }
+                    
+                    // Create default .env content
+                    const defaultContent = 
+`# Tribe environment variables
+# Add your configuration variables below
+
+TRIBE_MODEL=claude-3-7-sonnet-20250219
+ANTHROPIC_API_KEY=
+
+# Add your custom variables below
+`;
+                    
+                    // Save the new file with default content
+                    const success = envManager.saveEnvVariables(result, defaultContent);
+                    
+                    if (success) {
+                        // Refresh the list of env files
+                        this._getEnvFiles();
+                        
+                        vscode.window.showInformationMessage(`Created new environment file: ${result}`);
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to create environment file: ${result}`);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error showing input box:', error);
+            this._view?.webview.postMessage({
+                type: 'ERROR',
+                payload: {
+                    message: `Failed to show input box: ${error}`
+                }
+            });
+        }
+    }
+    
+    private async _restartExtension() {
+        try {
+            // Execute the restart command
+            await vscode.commands.executeCommand('tribe.restart');
+            vscode.window.showInformationMessage('Tribe extension has been restarted.');
+        } catch (error) {
+            console.error('Error restarting extension:', error);
+            this._view?.webview.postMessage({
+                type: 'ERROR',
+                payload: {
+                    message: `Failed to restart extension: ${error}`
+                }
+            });
+        }
+    }
+    
     private async _loadInitialState() {
         try {
-            // Immediately load and send the agents to populate the UI
-            await this._getAgents();
+            // Flag to track if we've found an active project
+            let hasActiveProject = false;
             
-            // Try to load active project from persistence
+            // Try to load active project from persistence first
             try {
                 const activeProject = await vscode.commands.executeCommand('tribe.getActiveProject') as ProjectData | null;
                 
                 if (activeProject && activeProject.team && activeProject.team.agents) {
                     console.log('Found active project:', activeProject.id);
+                    hasActiveProject = true;
                     
                     // Update local state with the loaded agents
                     this._currentAgents = activeProject.team.agents;
@@ -1154,9 +1341,30 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                             currentPhase: 'Planning'
                         }
                     });
+                    
+                    // Also send PROJECT_STATE update to ensure CrewPanel component updates properly
+                    this._view?.webview.postMessage({
+                        type: 'PROJECT_STATE',
+                        payload: {
+                            initialized: true,
+                            vision: activeProject.team.vision || activeProject.description,
+                            currentPhase: 'Planning',
+                            activeAgents: activeProject.team.agents,
+                            agents: activeProject.team.agents,
+                            pendingDecisions: [],
+                            tasks: [],
+                            notifications: [],
+                            teams: [activeProject.team]
+                        }
+                    });
                 }
             } catch (e) {
                 console.log('No active project to load:', e);
+            }
+            
+            // If no active project was found, try to get just the agents
+            if (!hasActiveProject) {
+                await this._getAgents();
             }
             
             try {
@@ -1191,8 +1399,8 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
 
             this._updateWebview();
             
-            // Ensure we initialize the project state with the current agents
-            if (this._currentAgents.length > 0) {
+            // Only send the default initialization if we didn't find an active project but have agents
+            if (!hasActiveProject && this._currentAgents.length > 0) {
                 this._view?.webview.postMessage({
                     type: 'PROJECT_INITIALIZED',
                     payload: {
@@ -1201,6 +1409,21 @@ export class CrewPanelProvider implements vscode.WebviewViewProvider {
                         agents: this._currentAgents,
                         activeAgents: this._currentAgents,
                         initialized: true
+                    }
+                });
+                
+                // Also ensure PROJECT_STATE is consistent
+                this._view?.webview.postMessage({
+                    type: 'PROJECT_STATE',
+                    payload: {
+                        initialized: true,
+                        vision: 'AI-powered software development',
+                        currentPhase: 'Planning',
+                        activeAgents: this._currentAgents,
+                        agents: this._currentAgents,
+                        pendingDecisions: [],
+                        tasks: [],
+                        notifications: []
                     }
                 });
             }

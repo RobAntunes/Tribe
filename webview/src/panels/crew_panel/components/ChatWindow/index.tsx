@@ -113,9 +113,23 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
     return (
         <div className="chat-window">
-            <div className="messages-container">
-                {messages.map(message => renderMessage(message))}
-                <div ref={messagesEndRef} />
+            <div className="messages-container" ref={messageListRef}>
+                {messages.length === 0 ? (
+                    <div className="empty-chat">
+                        <div className="empty-chat-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12C3 13.4876 3.36093 14.891 4 16.1272V20L7.87279 18.1272C9.10902 18.7663 10.5124 19.1272 12 19.1272C13.4876 19.1272 14.891 18.7663 16.1272 18.1272L20 20V16.1272C20.6391 14.891 21 13.4876 21 12" 
+                                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                        </div>
+                        <div className="empty-chat-text">No messages yet. Start a conversation!</div>
+                    </div>
+                ) : (
+                    <>
+                        {messages.map(message => renderMessage(message))}
+                        <div ref={messagesEndRef} />
+                    </>
+                )}
                 
                 {/* Loading indicator - positioned inside the messages container */}
                 {loadingAgent && (
@@ -140,9 +154,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 <button
                     onClick={handleSend}
                     disabled={!currentMessage.trim() || disabled}
-                    className="button primary"
+                    className="button primary send-button"
+                    aria-label="Send message"
                 >
-                    Send
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                 </button>
             </div>
         </div>

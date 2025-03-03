@@ -22,8 +22,7 @@ import {
 	Layers,
 	Bolt,
 	IterationCcw,
-	Flag,
-	Settings
+	Flag
 } from "lucide-react";
 import { GetStarted } from './components/GetStarted';
 import './styles.css';
@@ -370,12 +369,11 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 		notifications: [],
 		teams: []
 	};
-
+	
 	const [projectState, setProjectState] = useState<ProjectState>(defaultProjectState);
 	const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(false);
 	const [isAgentPanelExpanded, setIsAgentPanelExpanded] = useState(false);
 	const [learningSystemEnabled, setLearningSystemEnabled] = useState(true);
-	const [isResetDropdownOpen, setIsResetDropdownOpen] = useState(false);
 
 	// Tab configuration
 	const tabOrder: TabType[] = projectState.initialized
@@ -459,20 +457,6 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 			messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
 		}
 	}, [currentMessages]);
-	
-	// Close dropdown when clicking outside
-	useEffect(() => {
-		const handleClickOutside = (event: MouseEvent) => {
-			if (isResetDropdownOpen && !(event.target as Element).closest('.relative')) {
-				setIsResetDropdownOpen(false);
-			}
-		};
-		
-		document.addEventListener('mousedown', handleClickOutside);
-		return () => {
-			document.removeEventListener('mousedown', handleClickOutside);
-		};
-	}, [isResetDropdownOpen]);
 
 	// Effect to update active tab based on project state
 	useEffect(() => {
@@ -944,48 +928,24 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 					</div>
 					<h1 className="text-base font-semibold text-white">Tribe</h1>
 				</div>
-				<div className="relative">
-					<button 
-						className="p-1 rounded-md hover:bg-gray-700/30 transition-colors flex items-center" 
-						onClick={() => setIsResetDropdownOpen(!isResetDropdownOpen)}
-						title="Settings"
-					>
-						<svg className="w-5 h-5 text-gray-300 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-						</svg>
-						<svg className="w-3.5 h-3.5 ml-1 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-					</button>
-					
-					{isResetDropdownOpen && (
-						<div className="absolute right-0 mt-1 w-40 rounded-md shadow-lg bg-gray-800 border border-gray-700 z-20">
-							<div className="py-1">
-								<button
-									className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
-									onClick={() => {
-										setIsResetDropdownOpen(false);
-										vscode.postMessage({
-											type: 'RESET_TRIBE',
-											payload: {}
-										});
-									}}
-								>
-									Reset Tribe
-								</button>
-								<button
-									className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
-									onClick={() => {
-										setIsResetDropdownOpen(false);
-										setActiveTab('learning-improvement');
-										setLearningSubTab('environment');
-									}}
-								>
-									Env Vars
-								</button>
-							</div>
-						</div>
-					)}
-				</div>
+				<button 
+					className="p-1 rounded-md hover:bg-gray-700/30 transition-colors" 
+					onClick={() => {
+						// Skip confirmation
+						{
+							vscode.postMessage({
+								type: 'RESET_TRIBE',
+								payload: {}
+							});
+						}
+					}}
+					title="Reset Tribe"
+				>
+					<svg className="w-5 h-5 text-gray-300 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					</svg>
+				</button>
 			</div>
 			<div className="tab-container">
 				{tabOrder.map((tab) => (
@@ -1194,50 +1154,44 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 					
 					<div className="collaboration-content">
 						{collaborationSubTab === 'messages' && (
-							<div className="chat-app-container">
-								<div className="chat-list">
-									<div className="chat-list-header">
-										<h3>Conversations</h3>
-									</div>
-									<div className="chat-list-items">
-										{projectState.activeAgents.map((agent) => (
-											<div 
-												key={agent.id}
-												className={`chat-list-item ${targetAgentId === agent.id ? 'active' : ''}`}
-												onClick={() => handleAgentSelect(agent)}
-											>
-												<div className="chat-avatar">
-													{agent.name?.charAt(0).toUpperCase() || agent.role?.charAt(0).toUpperCase() || 'A'}
-												</div>
-												<div className="chat-info">
-													<div className="chat-name">{agent.name || agent.role}</div>
-													<div className="chat-preview">Click to chat with {agent.name || agent.role}</div>
-												</div>
-											</div>
-										))}
-										<div 
-											className={`chat-list-item ${targetAgentId === null ? 'active' : ''}`}
-											onClick={() => setTargetAgentId(null)}
+							<div className="chat-container">
+								<div className="sidebar">
+									<div className="sidebar-header">
+										<h3>Active Agents</h3>
+										<button 
+											className="toggle-button"
+											onClick={handleToggleAgentPanel}
+											aria-label="Toggle agent panel"
 										>
-											<div className="chat-avatar group">
-												<Users size={16} />
-											</div>
-											<div className="chat-info">
-												<div className="chat-name">All Agents</div>
-												<div className="chat-preview">Message all active agents</div>
-											</div>
-										</div>
+											{isAgentPanelOpen ? <ChevronRight size={16} /> : <ChevronRight size={16} />}
+										</button>
 									</div>
+									{isAgentPanelOpen && (
+										<div className={`agent-list ${isAgentPanelExpanded ? 'expanded' : ''}`}>
+											<div className="agent-list-header">
+												<h4>Agents</h4>
+												<button 
+													className="expand-button"
+													onClick={handleExpandAgentPanel}
+													aria-label="Expand agent panel"
+												>
+													{isAgentPanelExpanded ? <ChevronsDown size={16} /> : <ChevronsUp size={16} />}
+												</button>
+											</div>
+											{projectState.activeAgents.map((agent) => (
+												<AgentCard 
+													key={agent.id}
+													agent={agent}
+													isSelected={targetAgentId === agent.id}
+													onClick={() => handleAgentSelect(agent)}
+													expanded={isAgentPanelExpanded}
+												/>
+											))}
+										</div>
+									)}
 								</div>
 								
-								<div className="chat-content">
-									<div className="chat-header">
-										<h3>
-											{targetAgentId 
-												? projectState.activeAgents.find(a => a.id === targetAgentId)?.name || 'Selected Agent'
-												: 'All Agents'}
-										</h3>
-									</div>
+								<div className="main-content">
 									<ChatWindow 
 										messages={currentMessages}
 										currentAgentId={targetAgentId}
@@ -1245,21 +1199,19 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 										messageListRef={messageListRef}
 									/>
 									
-									<div className="chat-input-container">
+									<div className="message-input-container">
 										<textarea
-											className="chat-input"
+											className="message-input"
 											value={newMessageContent}
 											onChange={(e) => setNewMessageContent(e.target.value)}
 											onKeyDown={handleKeyDown}
 											placeholder={`Message ${targetAgentId ? projectState.activeAgents.find(a => a.id === targetAgentId)?.name || 'selected agent' : 'all agents'}...`}
 											disabled={sendingMessage}
-											rows={1}
 										/>
 										<button 
-											className="button primary send-button"
+											className="send-button"
 											onClick={sendMessage}
 											disabled={!newMessageContent.trim() || sendingMessage}
-											aria-label="Send message"
 										>
 											<Send size={16} />
 										</button>
@@ -1406,7 +1358,14 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 							/>
 						)}
 						{learningSubTab === 'environment' && (
-							<EnvironmentManager />
+							<EnvironmentManager
+								onSave={(variables) => {
+									vscode.postMessage({
+										type: 'UPDATE_ENV_VARIABLES',
+										payload: { variables }
+									});
+								}}
+							/>
 						)}
 					</div>
 				</div>

@@ -1,41 +1,10 @@
 /* eslint-disable header/header */
 
 import * as vscode from 'vscode';
-import { spawn, SpawnOptionsWithoutStdio } from 'child_process';
 import * as path from 'path';
 import { API_ENDPOINTS } from './config';
-import { StorageService } from './storage';
-import { ExtensionErrorHandler, ErrorSeverity, ErrorCategory, createError, errorWrapper } from './errorHandling';
-import { registerChangeCommands } from './commands/changeCommands';
-import { registerCheckpointCommands } from './commands/checkpointCommands';
-import { registerAnnotationCommands } from './commands/annotationCommands';
-import { registerImplementationCommands } from './commands/implementationCommands';
-import { registerConflictCommands } from './commands/conflictCommands';
-import { registerHistoryCommands } from './commands/historyCommands';
-import { DiffService } from './services/diffService';
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    TransportKind,
-    Trace,
-    State,
-} from 'vscode-languageclient/node';
-import { registerLogger, traceError, traceLog, traceVerbose } from './common/log/logging';
-import {
-    checkVersion,
-    getInterpreterDetails,
-    initializePython,
-    onDidChangePythonInterpreter,
-    resolveInterpreter,
-} from './common/python';
-import { restartServer } from './common/server';
-import { checkIfConfigurationChanged, getInterpreterFromSetting } from './common/settings';
-import { loadServerDefaults } from './common/setup';
-import { getLSClientTraceLevel } from './common/utilities';
-import { createOutputChannel, onDidChangeConfiguration, registerCommand } from './common/vscodeapi';
-import { CrewPanelProvider } from '../webview/src/panels/crew_panel/CrewPanelProvider';
-import { StorageService as NewStorageService } from './services/storageService';
+import { LanguageClient, ServerOptions, TransportKind, State } from 'vscode-languageclient/node';
+import { traceError, traceLog } from './common/log/logging';
 import * as fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -121,7 +90,7 @@ enum ServerStatus {
     NotStarted,
     Starting,
     Running,
-    Error
+    Error,
 }
 
 let serverStatus = ServerStatus.NotStarted;
@@ -134,7 +103,7 @@ function loadEnvFile(filePath: string): Record<string, string> {
         if (fs.existsSync(filePath)) {
             const content = fs.readFileSync(filePath, 'utf-8');
             const lines = content.split('\n');
-            
+
             for (const line of lines) {
                 const trimmedLine = line.trim();
                 if (trimmedLine && !trimmedLine.startsWith('#')) {
@@ -153,23 +122,158 @@ function loadEnvFile(filePath: string): Record<string, string> {
     return env;
 }
 
+/**
+ * Environment variable manager for the Tribe extension
+ */
+class EnvironmentManager {
+    private static instance: EnvironmentManager;
+    private envFiles: { path: string, exists: boolean }[] = [];
+
+    private constructor() {
+        // Initialize with default .env paths
+        this.scanEnvFiles();
+    }
+
+    public static getInstance(): EnvironmentManager {
+        if (!EnvironmentManager.instance) {
+            EnvironmentManager.instance = new EnvironmentManager();
+        }
+        return EnvironmentManager.instance;
+    }
+
+    /**
+     * Scan for .env files in the extension directory
+     */
+    public scanEnvFiles(): { path: string, exists: boolean }[] {
+        const fs = require('fs');
+        const path = require('path');
+        const extensionRoot = vscode.extensions.getExtension('mightydev.tribe')?.extensionPath || '';
+        
+        // Default .env locations to check
+        const locations = [
+            { path: path.join(extensionRoot, '.env'), label: '.env' },
+            { path: path.join(extensionRoot, 'tribe', '.env'), label: 'tribe/.env' },
+            { path: path.join(extensionRoot, '.env.local'), label: '.env.local' },
+            { path: path.join(extensionRoot, 'tribe', '.env.local'), label: 'tribe/.env.local' },
+            { path: path.join(extensionRoot, '.env.development'), label: '.env.development' },
+        ];
+
+        this.envFiles = locations.map(location => ({
+            path: location.path,
+            exists: fs.existsSync(location.path)
+        }));
+
+        return this.envFiles;
+    }
+
+    /**
+     * Get environment variables from a specific .env file
+     */
+    public getEnvVariables(filePath: string): { key: string, value: string, description?: string, isSecret?: boolean }[] {
+        const fs = require('fs');
+        const variables: { key: string, value: string, description?: string, isSecret?: boolean }[] = [];
+        
+        if (!fs.existsSync(filePath)) {
+            return [];
+        }
+
+        try {
+            const content = fs.readFileSync(filePath, 'utf8');
+            const lines = content.split('\n');
+            
+            let currentDescription = '';
+            
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                
+                // Skip empty lines
+                if (!trimmedLine) {
+                    continue;
+                }
+                
+                // Handle comments (descriptions)
+                if (trimmedLine.startsWith('#')) {
+                    currentDescription = trimmedLine.substring(1).trim();
+                    continue;
+                }
+                
+                // Parse environment variable
+                const match = trimmedLine.match(/^([^=]+)=(.*)$/);
+                if (match) {
+                    const key = match[1].trim();
+                    const value = match[2].trim();
+                    
+                    // Determine if the variable is a secret
+                    const isSecret = key.includes('KEY') || 
+                                    key.includes('SECRET') || 
+                                    key.includes('TOKEN') || 
+                                    key.includes('PASSWORD');
+                    
+                    variables.push({
+                        key,
+                        value,
+                        description: currentDescription || undefined,
+                        isSecret
+                    });
+                    
+                    // Reset description for next variable
+                    currentDescription = '';
+                }
+            }
+            
+            return variables;
+        } catch (err) {
+            console.error(`Error reading .env file ${filePath}:`, err);
+            return [];
+        }
+    }
+
+    /**
+     * Save environment variables to an .env file
+     */
+    public saveEnvVariables(filePath: string, content: string): boolean {
+        const fs = require('fs');
+        const path = require('path');
+        
+        try {
+            // Create directory if it doesn't exist
+            const directory = path.dirname(filePath);
+            if (!fs.existsSync(directory)) {
+                fs.mkdirSync(directory, { recursive: true });
+            }
+            
+            // Write the content to the file
+            fs.writeFileSync(filePath, content, 'utf8');
+            
+            // Refresh the env files list
+            this.scanEnvFiles();
+            
+            return true;
+        } catch (err) {
+            console.error(`Error saving .env file ${filePath}:`, err);
+            return false;
+        }
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Create an output channel
     outputChannel = vscode.window.createOutputChannel('Tribe');
     context.subscriptions.push(outputChannel);
-    
+
     outputChannel.appendLine('Tribe extension activating...');
-    
+
     // Try to load API key from multiple sources
     try {
         // 1. Try from settings first (highest priority)
         const apiKey = vscode.workspace.getConfiguration().get('tribe.apiKey');
         if (apiKey && typeof apiKey === 'string' && apiKey.trim() !== '') {
             // Check if it's not a placeholder
-            const isPlaceholder = apiKey.toLowerCase().includes('your-api-key') || 
-                                 apiKey.toLowerCase().includes('your_api_key') ||
-                                 apiKey === 'api-key';
-            
+            const isPlaceholder =
+                apiKey.toLowerCase().includes('your-api-key') ||
+                apiKey.toLowerCase().includes('your_api_key') ||
+                apiKey === 'api-key';
+
             if (!isPlaceholder) {
                 outputChannel.appendLine('Found API key in settings, setting environment variable');
                 process.env.ANTHROPIC_API_KEY = apiKey;
@@ -178,23 +282,24 @@ export function activate(context: vscode.ExtensionContext) {
             }
         } else {
             outputChannel.appendLine('No API key found in settings, checking .env files');
-            
+
             // 2. Try from .env files
             const path = require('path');
             const envPaths = [
                 path.join(context.extensionPath, '.env'),
-                path.join(context.extensionPath, 'tribe', '.env')
+                path.join(context.extensionPath, 'tribe', '.env'),
             ];
-            
+
             for (const envPath of envPaths) {
                 const envVars = loadEnvFile(envPath);
                 if (envVars.ANTHROPIC_API_KEY) {
                     // Check if it's not a placeholder
                     const envApiKey = envVars.ANTHROPIC_API_KEY;
-                    const isPlaceholder = envApiKey.toLowerCase().includes('your-api-key') || 
-                                         envApiKey.toLowerCase().includes('your_api_key') ||
-                                         envApiKey === 'api-key';
-                    
+                    const isPlaceholder =
+                        envApiKey.toLowerCase().includes('your-api-key') ||
+                        envApiKey.toLowerCase().includes('your_api_key') ||
+                        envApiKey === 'api-key';
+
                     if (!isPlaceholder) {
                         outputChannel.appendLine(`Found API key in ${envPath}, setting environment variable`);
                         process.env.ANTHROPIC_API_KEY = envApiKey;
@@ -203,7 +308,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             }
         }
-        
+
         // Log API key status (without revealing it)
         if (process.env.ANTHROPIC_API_KEY) {
             const key = process.env.ANTHROPIC_API_KEY;
@@ -218,22 +323,22 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (err) {
         outputChannel.appendLine(`Error loading API key: ${err}`);
     }
-    
+
     // Register the getAgents command for the UI
     context.subscriptions.push(
         vscode.commands.registerCommand('tribe.getAgents', async () => {
             try {
                 // Import storage service
                 const { StorageService } = require('./services/storageService');
-                
+
                 // Get service instance
                 const storageService = StorageService.getInstance(context);
-                
+
                 // Get agents from storage
                 const agents = await storageService.getAgents();
-                
+
                 outputChannel.appendLine(`Loaded ${agents.length} agents from persistence layer`);
-                
+
                 if (agents.length > 0) {
                     return agents;
                 } else {
@@ -251,21 +356,21 @@ export function activate(context: vscode.ExtensionContext) {
             return {
                 id: `project-${Date.now()}`,
                 initialized: true,
-                status: 'active'
+                status: 'active',
             };
         }),
-        
+
         vscode.commands.registerCommand('tribe.getActiveProject', async () => {
             try {
                 // Import storage service
                 const { StorageService } = require('./services/storageService');
-                
+
                 // Get service instance
                 const storageService = StorageService.getInstance(context);
-                
+
                 // Get active project
                 const activeProject = await storageService.getActiveProject();
-                
+
                 if (activeProject) {
                     outputChannel.appendLine(`Loaded active project: ${activeProject.id}`);
                     return activeProject;
@@ -278,7 +383,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return null;
             }
         }),
-        
+
         vscode.commands.registerCommand('tribe.resetStorage', async () => {
             try {
                 // Import storage service
@@ -286,15 +391,15 @@ export function activate(context: vscode.ExtensionContext) {
                 const { STORAGE_PATHS, getStorageDirectory } = require('./config');
                 const path = require('path');
                 const fs = require('fs');
-                
-                outputChannel.appendLine("Resetting all Tribe storage...");
-                
+
+                outputChannel.appendLine('Resetting all Tribe storage...');
+
                 // Get the storage directory
                 const storageDir = getStorageDirectory();
-                
+
                 if (fs.existsSync(storageDir)) {
                     outputChannel.appendLine(`Removing storage directory: ${storageDir}`);
-                    
+
                     // Delete everything in the directory but not the directory itself
                     const subdirs = [
                         STORAGE_PATHS.CHANGE_GROUPS,
@@ -307,7 +412,7 @@ export function activate(context: vscode.ExtensionContext) {
                         STORAGE_PATHS.TEAMS,
                         STORAGE_PATHS.PROJECTS,
                     ];
-                    
+
                     // Delete each subdirectory
                     for (const subdir of subdirs) {
                         const fullPath = path.join(storageDir, subdir);
@@ -320,8 +425,8 @@ export function activate(context: vscode.ExtensionContext) {
                             }
                         }
                     }
-                    
-                    outputChannel.appendLine("Storage reset successfully");
+
+                    outputChannel.appendLine('Storage reset successfully');
                     return true;
                 } else {
                     outputChannel.appendLine(`Storage directory doesn't exist: ${storageDir}`);
@@ -332,77 +437,194 @@ export function activate(context: vscode.ExtensionContext) {
                 return false;
             }
         }),
-        
+
         vscode.commands.registerCommand('tribe.saveTeamData', async (data) => {
             try {
                 const { team, agents } = data;
-                
+
                 if (!team || !agents) {
                     outputChannel.appendLine('Invalid team data provided');
                     return false;
                 }
-                
+
                 // Import storage service
                 const { StorageService } = require('./services/storageService');
-                
+
                 // Get service instance
                 const storageService = StorageService.getInstance(context);
-                
+
                 // Save the team
                 await storageService.saveTeam(team);
                 outputChannel.appendLine(`Saved team with ID: ${team.id}`);
-                
+
                 // Save each agent
                 for (const agent of agents) {
                     await storageService.saveAgent(agent);
                 }
                 outputChannel.appendLine(`Saved ${agents.length} agents to persistence layer`);
-                
+
                 // Create and save project
                 const now = new Date().toISOString();
                 const project = {
                     id: `project-${Date.now()}`,
-                    name: "Project",
-                    description: team.description || "Development Project",
+                    name: 'Project',
+                    description: team.description || 'Development Project',
                     initialized: true,
                     team: team,
                     created_at: now,
-                    updated_at: now
+                    updated_at: now,
                 };
-                
+
                 await storageService.saveProject(project, true);
                 outputChannel.appendLine(`Saved project with ID: ${project.id}`);
-                
+
                 return true;
             } catch (error) {
                 outputChannel.appendLine(`Error saving team data: ${error}`);
                 return false;
             }
-        })
+        }),
     );
 
     // Initialize the crew panel provider
     try {
         // Import provider from webview - workaround for circular dependencies
         const { CrewPanelProvider } = require('../webview/src/panels/crew_panel/CrewPanelProvider');
-        
+
         // Register webview panel provider
         const crewPanelProvider = new CrewPanelProvider(context.extensionUri);
-        context.subscriptions.push(
-            vscode.window.registerWebviewViewProvider('tribe.crewPanel', crewPanelProvider)
-        );
-        
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider('tribe.crewPanel', crewPanelProvider));
+
         outputChannel.appendLine('Registered crew panel provider');
     } catch (err) {
         outputChannel.appendLine(`Error initializing webview: ${err}`);
         // Continue without webview if it fails
     }
-    
+
     // Don't start the server automatically, wait for user to explicitly request it
     // This helps prevent the "write after end" errors during VSCode restart
     serverStatus = ServerStatus.NotStarted;
     outputChannel.appendLine('Server will be started on first command...');
-    
+
+    // Register event listeners for extension/server lifecycle
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (event) => {
+            // If tribe section was changed, reinitialize client
+            if (event.affectsConfiguration('tribe')) {
+                outputChannel.appendLine('Tribe configuration changed, restarting server on next command');
+                serverStatus = ServerStatus.NotStarted;
+                startupPromise = null;
+            }
+        }),
+    );
+
+    // Add comprehensive error handling system for extension errors
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+        outputChannel.appendLine(`[UNCAUGHT EXCEPTION] ${error.message}`);
+        outputChannel.appendLine(error.stack || 'No stack trace available');
+
+        handlePotentialServerError(error);
+    });
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+        outputChannel.appendLine(`[UNHANDLED REJECTION] ${reason}`);
+
+        // If reason is an error object, pass it to the handler
+        if (reason instanceof Error) {
+            handlePotentialServerError(reason);
+        }
+    });
+
+    // Helper function to handle potential server errors
+    function handlePotentialServerError(error: Error) {
+        // List of known error patterns that require server restart
+        const serverErrorPatterns = [
+            'Content-Length',
+            'write after end',
+            'Socket is not writable',
+            'Cannot read properties of null',
+            'ECONNRESET',
+            'ended with status code',
+            'spawn ENOMEM',
+            'Connection reset',
+            'broken pipe',
+            'lock() request could not be registered',
+            'Socket is closed',
+            'Stream has been destroyed',
+        ];
+
+        // Check if error message matches any of our patterns
+        const isServerError = serverErrorPatterns.some((pattern) => error.message && error.message.includes(pattern));
+
+        if (isServerError) {
+            outputChannel.appendLine(
+                `[RECOVERY] Detected server communication error, will restart server: ${error.message}`,
+            );
+
+            // Force server to restart on next command
+            serverStatus = ServerStatus.NotStarted;
+            startupPromise = null;
+
+            // If we have a client, try to clean it up safely
+            if (client) {
+                try {
+                    outputChannel.appendLine('[RECOVERY] Attempting to stop client and clean up resources');
+
+                    // First try to clean up connection resources
+                    try {
+                        if ((client as any)._connection) {
+                            const connection = (client as any)._connection;
+
+                            // Try to dispose reader and writer in a safe way
+                            ['_reader', '_writer', '_channels', '_socketListeners'].forEach((prop) => {
+                                try {
+                                    if (connection[prop] && typeof connection[prop].dispose === 'function') {
+                                        outputChannel.appendLine(`[RECOVERY] Disposing connection.${prop}`);
+                                        connection[prop].dispose();
+                                    }
+                                } catch (e) {
+                                    outputChannel.appendLine(`[RECOVERY] Error disposing connection.${prop}: ${e}`);
+                                }
+                            });
+
+                            // Explicitly null out socket references if possible
+                            try {
+                                if (connection._socket) {
+                                    outputChannel.appendLine('[RECOVERY] Nullifying socket references');
+                                    connection._socket.removeAllListeners();
+                                    connection._socket = null;
+                                }
+                            } catch (e) {
+                                outputChannel.appendLine(`[RECOVERY] Error cleaning up socket: ${e}`);
+                            }
+                        }
+                    } catch (e) {
+                        outputChannel.appendLine(`[RECOVERY] Error cleaning up connection: ${e}`);
+                    }
+
+                    // Now try to stop the client
+                    client.stop().catch((e) => {
+                        outputChannel.appendLine(`[RECOVERY] Error stopping client: ${e}`);
+                    });
+
+                    // Force client to null to ensure fresh restart
+                    client = null;
+
+                    // Set a timeout to allow resources to be released
+                    setTimeout(() => {
+                        outputChannel.appendLine('[RECOVERY] Server recovery timeout completed, ready for restart');
+                    }, 2000);
+                } catch (e) {
+                    outputChannel.appendLine(`[RECOVERY] Error in cleanup: ${e}`);
+                    client = null;
+                }
+            }
+        }
+    }
+
     /**
      * Creates a fallback team when the server is not available
      * @param description The team description
@@ -414,163 +636,251 @@ export function activate(context: vscode.ExtensionContext) {
         return {
             project: {
                 id: `project-fallback-${now}`,
-                name: "Project",
+                name: 'Project',
                 description: description,
                 initialized: true,
                 team: {
                     id: `team-fallback-${now + 1}`,
-                    name: "Team",
+                    name: 'Team',
                     description: `Team for ${description}`,
                     agents: [
                         {
-                            id: "0",
-                            role: "Lead Developer",
-                            name: "Alex",
-                            description: "Experienced software engineer with 10+ years of focus on architecture and system design.",
-                            short_description: "Senior developer with expertise in system architecture",
-                            backstory: "Experienced software engineer with 10+ years of focus on architecture and system design.",
-                            status: "active",
+                            id: '0',
+                            role: 'Lead Developer',
+                            name: 'Sparks',
+                            description:
+                                'Experienced software engineer with 10+ years of focus on architecture and system design.',
+                            short_description: 'Senior developer with expertise in system architecture',
+                            backstory:
+                                'Experienced software engineer with 10+ years of focus on architecture and system design.',
+                            status: 'active',
                             initialization_complete: true,
-                            tools: []
+                            tools: [],
                         },
                         {
-                            id: "1",
-                            role: "Front-end Developer",
-                            name: "Taylor",
-                            description: "UI/UX specialist with 5 years of experience in modern frontend frameworks.",
-                            short_description: "Frontend specialist with UI/UX expertise",
-                            backstory: "UI/UX specialist with 5 years of experience in modern frontend frameworks.",
-                            status: "active",
+                            id: '1',
+                            role: 'Front-end Developer',
+                            name: 'Glint',
+                            description: 'UI/UX specialist with 5 years of experience in modern frontend frameworks.',
+                            short_description: 'Frontend specialist with UI/UX expertise',
+                            backstory: 'UI/UX specialist with 5 years of experience in modern frontend frameworks.',
+                            status: 'active',
                             initialization_complete: true,
-                            tools: []
+                            tools: [],
                         },
                         {
-                            id: "2",
-                            role: "QA Engineer",
-                            name: "Jordan",
-                            description: "Testing expert with automation skills and experience with CI/CD pipelines.",
-                            short_description: "QA specialist with automation expertise",
-                            backstory: "Testing expert with automation skills and experience with CI/CD pipelines.",
-                            status: "active",
+                            id: '2',
+                            role: 'QA Engineer',
+                            name: 'Zip',
+                            description: 'Testing expert with automation skills and experience with CI/CD pipelines.',
+                            short_description: 'QA specialist with automation expertise',
+                            backstory: 'Testing expert with automation skills and experience with CI/CD pipelines.',
+                            status: 'active',
                             initialization_complete: true,
-                            tools: []
-                        }
-                    ]
-                }
-            }
+                            tools: [],
+                        },
+                    ],
+                },
+            },
         };
     }
 
     // Create a function to ensure the server is ready with a timeout
     async function ensureServerReady(): Promise<boolean> {
         outputChannel.appendLine(`[DEBUG] ensureServerReady called. Current status: ${ServerStatus[serverStatus]}`);
-        
-        // If server is already running, return immediately
+
+        // If server is already running and client exists, check if it's still in a healthy state
         if (serverStatus === ServerStatus.Running && client) {
-            outputChannel.appendLine('[DEBUG] Server already running, returning immediately');
-            return true;
+            outputChannel.appendLine('[DEBUG] Server marked as running, verifying client health');
+
+            // Check if client is still in a valid state
+            try {
+                const isHealthy =
+                    client &&
+                    (client as any)._connection &&
+                    (client as any)._connection._writer &&
+                    !(client as any)._connection._writer.hasEnded &&
+                    (client as any)._connection._reader;
+
+                if (isHealthy) {
+                    outputChannel.appendLine('[DEBUG] Server connection appears healthy, returning immediately');
+                    return true;
+                } else {
+                    outputChannel.appendLine('[DEBUG] Server connection appears unhealthy, will restart');
+                    // Force server to restart
+                    serverStatus = ServerStatus.NotStarted;
+                    startupPromise = null;
+                    client = null;
+                }
+            } catch (e) {
+                outputChannel.appendLine(`[DEBUG] Error checking client health, will restart: ${e}`);
+                // Force server to restart
+                serverStatus = ServerStatus.NotStarted;
+                startupPromise = null;
+                client = null;
+            }
         }
-        
+
         // If already starting, wait for existing promise
         if (serverStatus === ServerStatus.Starting && startupPromise) {
             outputChannel.appendLine('[DEBUG] Server already starting, waiting for existing promise');
             return startupPromise;
         }
-        
+
         // Start a new server initialization
         serverStatus = ServerStatus.Starting;
         outputChannel.appendLine('Starting server initialization...');
-        
+
         // Add overall timeout for starting server (30 seconds)
         const timeout = setTimeout(() => {
             outputChannel.appendLine('[DEBUG] Server initialization timed out');
             serverStatus = ServerStatus.Error;
             startupPromise = Promise.resolve(false);
         }, 30000);
-        
+
         // Create a new promise for this initialization
         startupPromise = new Promise<boolean>(async (resolve) => {
             try {
                 outputChannel.appendLine('[DEBUG] Inside startupPromise');
-                
-                // Clean up any existing client
+
+                // Thoroughly clean up any existing client
                 if (client) {
                     try {
                         outputChannel.appendLine('Stopping existing client...');
-                        await client.stop().catch(e => {
-                            outputChannel.appendLine(`Expected error stopping client: ${e}`);
-                        });
+
+                        // First clean up individual resources to prevent hanging
+                        try {
+                            if ((client as any)._connection) {
+                                const connection = (client as any)._connection;
+
+                                // Clean up internal connection objects that might cause issues
+                                ['_reader', '_writer', '_channels'].forEach((prop) => {
+                                    try {
+                                        if (connection[prop] && typeof connection[prop].dispose === 'function') {
+                                            outputChannel.appendLine(`Cleaning up connection.${prop}...`);
+                                            connection[prop].dispose();
+                                        }
+                                    } catch (err) {
+                                        outputChannel.appendLine(`Error cleaning up connection.${prop}: ${err}`);
+                                    }
+                                });
+
+                                // Handle socket cleanup
+                                if (connection._socket) {
+                                    try {
+                                        outputChannel.appendLine('Cleaning up socket...');
+                                        connection._socket.removeAllListeners();
+                                        connection._socket = null;
+                                    } catch (socketErr) {
+                                        outputChannel.appendLine(`Error cleaning up socket: ${socketErr}`);
+                                    }
+                                }
+                            }
+                        } catch (connErr) {
+                            outputChannel.appendLine(`Error accessing connection properties: ${connErr}`);
+                        }
+
+                        // Now attempt to stop the client with a timeout
+                        try {
+                            const stopPromise = client.stop();
+                            const timeoutPromise = new Promise<void>((_, reject) => {
+                                setTimeout(() => reject(new Error('Client stop timed out')), 5000);
+                            });
+
+                            await Promise.race([stopPromise, timeoutPromise]).catch((e) => {
+                                outputChannel.appendLine(`Expected error stopping client: ${e}`);
+                            });
+                        } catch (stopErr) {
+                            outputChannel.appendLine(`Error during client.stop(): ${stopErr}`);
+                        }
+
                         client = null;
                     } catch (e) {
                         outputChannel.appendLine(`Error stopping client (handled): ${e}`);
                         client = null;
                     }
                 }
-                
+
                 // Wait a moment for resources to be freed
                 outputChannel.appendLine('[DEBUG] Waiting for resources to be freed');
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+
                 // Check what Python path we're using
                 try {
                     outputChannel.appendLine('[DEBUG] Checking Python version...');
                     const pythonVersionResult = await execAsync('python --version')
-                        .then(result => result.stdout.trim())
-                        .catch(err => {
+                        .then((result) => result.stdout.trim())
+                        .catch((err) => {
                             outputChannel.appendLine(`[DEBUG] Error checking Python version: ${err}`);
-                            return "Unknown";
+                            return 'Unknown';
                         });
-                    
+
                     outputChannel.appendLine(`[DEBUG] Python version: ${pythonVersionResult}`);
                 } catch (err) {
                     outputChannel.appendLine(`[DEBUG] Error during Python version check: ${err}`);
                 }
-                
+
                 // Create new client with debug tracing
                 outputChannel.appendLine('[DEBUG] Creating new client...');
-                
+
                 // Add the extension path to PYTHONPATH to help with imports
                 const extensionPath = context.extensionPath;
                 const pythonPathAdditions = [
-                    extensionPath, 
+                    extensionPath,
                     `${extensionPath}/tribe`,
                     `${extensionPath}/bundled/tool`,
                     `${extensionPath}/bundled/libs`,
                 ];
-                
+
                 // Create PYTHONPATH with the extension paths (using correct path separator for platform)
                 const pathSeparator = process.platform === 'win32' ? ';' : ':';
-                const pythonPath = pythonPathAdditions.join(pathSeparator) + 
+                const pythonPath =
+                    pythonPathAdditions.join(pathSeparator) +
                     (process.env.PYTHONPATH ? pathSeparator + process.env.PYTHONPATH : '');
-                
-                // Just log the API key status - we've already loaded it from .env files 
+
+                // Just log the API key status - we've already loaded it from .env files
                 if (process.env.ANTHROPIC_API_KEY) {
                     const key = process.env.ANTHROPIC_API_KEY;
-                    const isPlaceholder = key.toLowerCase().includes('your-api-key') || 
-                                         key.toLowerCase().includes('your_api_key') ||
-                                         key === 'api-key';
-                    
+                    const isPlaceholder =
+                        key.toLowerCase().includes('your-api-key') ||
+                        key.toLowerCase().includes('your_api_key') ||
+                        key === 'api-key';
+
                     if (isPlaceholder) {
                         outputChannel.appendLine('[WARNING] ANTHROPIC_API_KEY contains placeholder value');
-                        vscode.window.showWarningMessage('Anthropic API key appears to be a placeholder. Team creation will use mock data.', 'Learn More')
-                            .then(selection => {
+                        vscode.window
+                            .showWarningMessage(
+                                'Anthropic API key appears to be a placeholder. Team creation will use mock data.',
+                                'Learn More',
+                            )
+                            .then((selection) => {
                                 if (selection === 'Learn More') {
-                                    vscode.env.openExternal(vscode.Uri.parse('https://docs.anthropic.com/claude/reference/getting-started-with-the-api'));
+                                    vscode.env.openExternal(
+                                        vscode.Uri.parse(
+                                            'https://docs.anthropic.com/claude/reference/getting-started-with-the-api',
+                                        ),
+                                    );
                                 }
                             });
                     } else {
-                        outputChannel.appendLine(`[DEBUG] API key found and properly set: ${key.substring(0, 4)}...${key.substring(key.length - 4)}`);
+                        outputChannel.appendLine(
+                            `[DEBUG] API key found and properly set: ${key.substring(0, 4)}...${key.substring(key.length - 4)}`,
+                        );
                     }
                 } else {
                     outputChannel.appendLine('[WARNING] ANTHROPIC_API_KEY not set');
-                    vscode.window.showWarningMessage('Anthropic API key not set. Team creation will use mock data.', 'Set API Key')
-                        .then(selection => {
+                    vscode.window
+                        .showWarningMessage(
+                            'Anthropic API key not set. Team creation will use mock data.',
+                            'Set API Key',
+                        )
+                        .then((selection) => {
                             if (selection === 'Set API Key') {
                                 vscode.commands.executeCommand('tribe.setApiKey');
                             }
                         });
                 }
-                
+
                 // Set timeout to 60 seconds
                 const serverOptions: ServerOptions = {
                     run: {
@@ -578,43 +888,44 @@ export function activate(context: vscode.ExtensionContext) {
                         args: ['-m', 'tribe'],
                         options: {
                             env: {
-                                ...process.env,  // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
+                                ...process.env, // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
                                 TRIBE_MODEL: API_ENDPOINTS.MODEL,
                                 TRIBE_DEBUG: 'false', // Disable debug mode to use real model
                                 PYTHONPATH: pythonPath,
                                 LS_SHOW_NOTIFICATION: 'always', // Show all LSP notifications
                                 PYTHONUNBUFFERED: '1', // Unbuffered output
-                                PYTHONIOENCODING: 'utf-8', // Force UTF-8 
+                                PYTHONIOENCODING: 'utf-8', // Force UTF-8
                             },
                         },
-                        transport: TransportKind.stdio
+                        transport: TransportKind.stdio,
                     },
                     debug: {
                         command: 'python',
                         args: ['-m', 'tribe', '--debug'],
                         options: {
                             env: {
-                                ...process.env,  // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
+                                ...process.env, // This will include the ANTHROPIC_API_KEY we loaded from .env or settings
                                 TRIBE_MODEL: API_ENDPOINTS.MODEL,
                                 TRIBE_DEBUG: 'false', // Disable debug mode to use real model
                                 PYTHONPATH: pythonPath,
                                 LS_SHOW_NOTIFICATION: 'always', // Show all LSP notifications
                                 PYTHONUNBUFFERED: '1', // Unbuffered output
-                                PYTHONIOENCODING: 'utf-8', // Force UTF-8 
+                                PYTHONIOENCODING: 'utf-8', // Force UTF-8
                             },
                         },
-                        transport: TransportKind.stdio
-                    }
+                        transport: TransportKind.stdio,
+                    },
                 };
-                
+
                 outputChannel.appendLine(`[DEBUG] PYTHONPATH: ${pythonPath}`);
-                
+
                 // Create client with proper parameter order: id, name, serverOptions, clientOptions
                 client = new LanguageClient(
                     'tribe', // id
-                    'Tribe Language Server', // name 
+                    'Tribe Language Server', // name
                     serverOptions, // serverOptions
-                    {  // clientOptions
+                    {
+                        // clientOptions
                         documentSelector: [{ scheme: 'file', language: '*' }],
                         synchronize: {
                             configurationSection: 'tribe',
@@ -623,27 +934,53 @@ export function activate(context: vscode.ExtensionContext) {
                         traceOutputChannel: outputChannel,
                         revealOutputChannelOn: 4, // Show output on error and for all LSP messages
                         initializationOptions: {
-                            debug: true,  // Pass debug flag to server
-                            timeout: 60000 // 60 second timeout
-                        }
-                    }
+                            debug: true, // Pass debug flag to server
+                            timeout: 60000, // 60 second timeout
+                        },
+                        // Note: The handleError middleware is not available in this version
+                        // of the LanguageClient API, so we handle errors through the reader directly
+                    },
                 );
-                
+
                 // Set error handler
                 client.onDidChangeState((e) => {
                     outputChannel.appendLine(`[DEBUG] Client state changed: ${e.oldState} -> ${e.newState}`);
                 });
-                
-                // Start the client
+
+                // Start the client with additional error handling
                 outputChannel.appendLine('[DEBUG] Starting client...');
                 try {
                     await client.start();
                     outputChannel.appendLine('[DEBUG] Client.start() completed');
+
+                    // Set an error handler for message processing errors
+                    // Use a try-catch since this is accessing internals that may change
+                    try {
+                        // Access connection and reader if they exist
+                        if ((client as any)._connection && (client as any)._connection._reader) {
+                            (client as any)._connection._reader.onError((error: Error) => {
+                                outputChannel.appendLine(`[ERROR] Reader error: ${error.message}`);
+                                if (error.message && error.message.includes('Content-Length')) {
+                                    outputChannel.appendLine(
+                                        '[ERROR] Content-Length error in reader, triggering restart',
+                                    );
+                                    // Force server to restart on next command
+                                    serverStatus = ServerStatus.NotStarted;
+                                    startupPromise = null;
+                                }
+                            });
+                            outputChannel.appendLine('[DEBUG] Reader error handler installed');
+                        } else {
+                            outputChannel.appendLine('[DEBUG] Could not access reader to install error handler');
+                        }
+                    } catch (err) {
+                        outputChannel.appendLine(`[DEBUG] Error installing reader error handler: ${err}`);
+                    }
                 } catch (e) {
                     outputChannel.appendLine(`[DEBUG] Error in client.start(): ${e}`);
                     throw e;
                 }
-                
+
                 // Wait for client to be in running state
                 outputChannel.appendLine('[DEBUG] Waiting for client to enter running state...');
                 // Increase timeout to 30 seconds (30 attempts with 1 second delay)
@@ -652,31 +989,33 @@ export function activate(context: vscode.ExtensionContext) {
                         outputChannel.appendLine('[DEBUG] Client unexpectedly became null');
                         throw new Error('Client unexpectedly became null');
                     }
-                    
-                    const state = client["_state"];
-                    outputChannel.appendLine(`[DEBUG] Client state check ${i+1}/30: ${state}`);
-                    
+
+                    const state = client['_state'];
+                    outputChannel.appendLine(`[DEBUG] Client state check ${i + 1}/30: ${state}`);
+
                     if (state === State.Running) {
                         outputChannel.appendLine('[DEBUG] Client is in running state!');
                         serverStatus = ServerStatus.Running;
                         clearTimeout(timeout);
                         return resolve(true);
                     }
-                    
+
                     // Check if we're at state 3 (Starting) for a long time
                     // State 1: Created, 2: Starting, 3: Running, 4: Stopped
                     if (state === 3 && i > 5) {
                         // If we're in state 3 for more than 5 seconds, consider it running
-                        outputChannel.appendLine('[DEBUG] Client is in state 3 (Starting) for more than 5 seconds, considering it running');
+                        outputChannel.appendLine(
+                            '[DEBUG] Client is in state 3 (Starting) for more than 5 seconds, considering it running',
+                        );
                         serverStatus = ServerStatus.Running;
                         clearTimeout(timeout);
                         return resolve(true);
                     }
-                    
+
                     // Wait before checking again
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
                 }
-                
+
                 // If we get here, server didn't start properly
                 outputChannel.appendLine('[DEBUG] Server did not enter running state in time');
                 serverStatus = ServerStatus.Error;
@@ -684,12 +1023,12 @@ export function activate(context: vscode.ExtensionContext) {
                 resolve(false);
             } catch (err) {
                 outputChannel.appendLine(`[DEBUG] Error starting server: ${err}`);
-                
+
                 if (client) {
                     try {
                         // Try to clean up
                         outputChannel.appendLine('[DEBUG] Trying to clean up client after error');
-                        await client.stop().catch(e => {
+                        await client.stop().catch((e) => {
                             outputChannel.appendLine(`[DEBUG] Error during cleanup: ${e}`);
                         });
                     } catch (e) {
@@ -697,13 +1036,13 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     client = null;
                 }
-                
+
                 serverStatus = ServerStatus.Error;
                 clearTimeout(timeout);
                 resolve(false);
             }
         });
-        
+
         return startupPromise;
     }
 
@@ -719,86 +1058,157 @@ export function activate(context: vscode.ExtensionContext) {
                     if (!value) {
                         return 'API key is required';
                     }
-                    if (value.toLowerCase().includes('your-api-key') || 
-                        value.toLowerCase().includes('your_api_key')) {
+                    if (value.toLowerCase().includes('your-api-key') || value.toLowerCase().includes('your_api_key')) {
                         return 'Please enter an actual API key, not a placeholder';
                     }
                     if (!value.startsWith('sk-')) {
                         return 'Anthropic API keys typically start with "sk-"';
                     }
                     return null; // Input is valid
-                }
+                },
             });
-            
+
             if (apiKey) {
                 // Set the API key in the environment
                 process.env.ANTHROPIC_API_KEY = apiKey;
-                
+
                 // Restart the server to use the new API key
                 await vscode.commands.executeCommand('tribe.restart');
-                
+
                 vscode.window.showInformationMessage('API key set successfully! Server restarted.');
-                
+
                 // Suggest saving the key for future sessions
                 const saveChoice = await vscode.window.showInformationMessage(
                     'Would you like to save this API key for future sessions?',
                     'Yes (User Settings)',
-                    'No'
+                    'No',
                 );
-                
+
                 if (saveChoice === 'Yes (User Settings)') {
                     // Update user settings with the API key
-                    await vscode.workspace.getConfiguration().update(
-                        'tribe.apiKey',
-                        apiKey,
-                        vscode.ConfigurationTarget.Global
-                    );
-                    
+                    await vscode.workspace
+                        .getConfiguration()
+                        .update('tribe.apiKey', apiKey, vscode.ConfigurationTarget.Global);
+
                     vscode.window.showInformationMessage('API key saved to user settings.');
                 }
             }
-        })
+        }),
     );
-    
+
     // Register the main commands
     context.subscriptions.push(
         vscode.commands.registerCommand('tribe.restart', async () => {
             outputChannel.appendLine('Restarting server...');
-            
+
             // Force server status to not started to ensure full restart
             serverStatus = ServerStatus.NotStarted;
             startupPromise = null;
-            
+
             try {
-                await vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: "Restarting Tribe server...",
-                    cancellable: false
-                }, async (progress) => {
-                    progress.report({ increment: 0, message: "Stopping and restarting server..." });
-                    
-                    const success = await ensureServerReady();
-                    
-                    if (success) {
-                        progress.report({ increment: 100, message: "Server restarted!" });
-                        outputChannel.appendLine('Server restart completed successfully');
-                    } else {
-                        progress.report({ increment: 100, message: "Restart had issues" });
-                        throw new Error("Failed to restart server completely");
-                    }
-                });
-                
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Restarting Tribe server...',
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({ increment: 0, message: 'Cleaning up resources...' });
+
+                        // Thorough cleanup of client before restart
+                        if (client) {
+                            try {
+                                // Clean up all internal resources
+                                try {
+                                    if ((client as any)._connection) {
+                                        const connection = (client as any)._connection;
+
+                                        // Dispose of reader, writer, and other resources
+                                        ['_reader', '_writer', '_channels', '_socketListeners'].forEach((prop) => {
+                                            try {
+                                                if (
+                                                    connection[prop] &&
+                                                    typeof connection[prop].dispose === 'function'
+                                                ) {
+                                                    outputChannel.appendLine(`Cleaning up connection.${prop}...`);
+                                                    connection[prop].dispose();
+                                                }
+                                            } catch (err) {
+                                                outputChannel.appendLine(
+                                                    `Error cleaning up connection.${prop}: ${err}`,
+                                                );
+                                            }
+                                        });
+
+                                        // Cleanup socket if it exists
+                                        if (connection._socket) {
+                                            try {
+                                                outputChannel.appendLine('Cleaning up socket...');
+                                                connection._socket.removeAllListeners();
+                                                connection._socket = null;
+                                            } catch (socketErr) {
+                                                outputChannel.appendLine(`Error cleaning up socket: ${socketErr}`);
+                                            }
+                                        }
+                                    }
+                                } catch (connErr) {
+                                    outputChannel.appendLine(`Error accessing connection: ${connErr}`);
+                                }
+
+                                // Try to stop client
+                                progress.report({ increment: 20, message: 'Stopping server...' });
+                                try {
+                                    await Promise.race([
+                                        client.stop(),
+                                        new Promise((_, reject) =>
+                                            setTimeout(() => reject(new Error('Stop timed out')), 5000),
+                                        ),
+                                    ]).catch((e) => outputChannel.appendLine(`Expected error during stop: ${e}`));
+                                } catch (stopErr) {
+                                    outputChannel.appendLine(`Error stopping client: ${stopErr}`);
+                                }
+
+                                // Nullify client reference
+                                client = null;
+
+                                // Wait for resources to be freed
+                                progress.report({ increment: 40, message: 'Freeing resources...' });
+                                await new Promise((resolve) => setTimeout(resolve, 1000));
+                            } catch (e) {
+                                outputChannel.appendLine(`Error during cleanup: ${e}`);
+                                client = null;
+                            }
+                        }
+
+                        progress.report({ increment: 60, message: 'Starting new server...' });
+
+                        const success = await ensureServerReady();
+
+                        if (success) {
+                            progress.report({ increment: 100, message: 'Server restarted!' });
+                            outputChannel.appendLine('Server restart completed successfully');
+                        } else {
+                            progress.report({ increment: 100, message: 'Restart had issues' });
+                            throw new Error('Failed to restart server completely');
+                        }
+                    },
+                );
+
                 vscode.window.showInformationMessage('Tribe server restarted successfully.');
             } catch (err) {
                 outputChannel.appendLine(`Error restarting server: ${err}`);
                 vscode.window.showErrorMessage(`Error restarting server: ${err}`);
             }
         }),
-        
+
         vscode.commands.registerCommand('tribe.createTeam', async (description = 'New development team') => {
             // Ensure description is a string and handle potential object parameters
             if (typeof description === 'object') {
-                if (description && description.hasOwnProperty('description') && typeof description.description === 'string') {
+                if (
+                    description &&
+                    description.hasOwnProperty('description') &&
+                    typeof description.description === 'string'
+                ) {
                     // Extract description from object if possible
                     description = description.description;
                 } else {
@@ -806,140 +1216,208 @@ export function activate(context: vscode.ExtensionContext) {
                     description = 'New development team';
                 }
             }
-            
+
             outputChannel.appendLine(`Creating team with description: ${description}...`);
-            
+
             // Ensure the description is a string
             if (typeof description !== 'string') {
                 description = 'New development team';
             }
-            
+
+            // Enhanced with robust error handling
             try {
                 // Wait for server to be ready before proceeding
-                const serverInitialized = await vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: "Preparing Tribe server...",
-                    cancellable: false
-                }, async (progress) => {
-                    progress.report({ increment: 0, message: "Ensuring server is ready..." });
-                    
-                    try {
-                        const ready = await ensureServerReady();
-                        
-                        if (!ready) {
-                            outputChannel.appendLine('Server did not initialize properly, using fallback');
+                const serverInitialized = await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Preparing Tribe server...',
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({ increment: 0, message: 'Ensuring server is ready...' });
+
+                        try {
+                            const ready = await ensureServerReady();
+
+                            if (!ready) {
+                                outputChannel.appendLine('Server did not initialize properly, using fallback');
+                                return false;
+                            }
+
+                            progress.report({ increment: 100, message: 'Server ready' });
+                            return true;
+                        } catch (error) {
+                            outputChannel.appendLine(`Error initializing server: ${error}`);
                             return false;
                         }
-                        
-                        progress.report({ increment: 100, message: "Server ready" });
-                        return true;
-                    } catch (error) {
-                        outputChannel.appendLine(`Error initializing server: ${error}`);
-                        return false;
-                    }
-                });
-                
+                    },
+                );
+
                 // If server did not initialize properly, provide a fallback response
                 if (!serverInitialized || !client) {
                     outputChannel.appendLine('Using fallback for team creation (server not available)');
-                    
-                    vscode.window.showInformationMessage('Creating team in offline mode. Some features might be limited.');
-                    
+
+                    vscode.window.showInformationMessage(
+                        'Creating team in offline mode. Some features might be limited.',
+                    );
+
                     // Return a fallback team using our helper function
                     return createFallbackTeam(description);
                 }
-                
+
                 // Now proceed with team creation via server
-                const result = await vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: "Creating team...",
-                    cancellable: false
-                }, async (progress) => {
-                    progress.report({ increment: 30, message: "Sending request..." });
-                    
-                    try {
-                        // Add a timeout for the request
-                        const timeoutPromise = new Promise((_, reject) => {
-                            setTimeout(() => reject(new Error('Request timed out after 45 seconds')), 45000);
-                        });
-                        
-                        if (!client) {
-                            throw new Error("Client unexpectedly became null");
-                        }
-                        
-                        // Race the client request against the timeout
-                        const result = await Promise.race([
-                            client.sendRequest('tribe/createTeam', {
-                                description: description,
-                                team_size: 3,
-                                temperature: 0.7
-                            }),
-                            timeoutPromise
-                        ]);
-                        
-                        // Check that result is properly formatted
-                        if (!result || typeof result !== 'object') {
-                            outputChannel.appendLine(`Invalid response format: ${JSON.stringify(result)}`);
-                            throw new Error(`Invalid response format from server: ${JSON.stringify(result)}`);
-                        }
-                        
-                        // Check for error in the result object
-                        if (result && typeof result === 'object' && 'error' in result) {
-                            const errorMsg = (result as any).error;
-                            outputChannel.appendLine(`Error from server: ${errorMsg}`);
-                            
-                            // Check if the error is about the API key
-                            if (errorMsg.includes('ANTHROPIC_API_KEY') || errorMsg.includes('API key')) {
-                                vscode.window.showInformationMessage('API key not configured. Creating team in offline mode.');
-                                return createFallbackTeam(description);
-                            } else {
-                                throw new Error(`Server returned error: ${errorMsg}`);
+                const result = await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Creating team...',
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({ increment: 30, message: 'Sending request...' });
+
+                        try {
+                            // Add a timeout for the request
+                            const timeoutPromise = new Promise((_, reject) => {
+                                setTimeout(() => reject(new Error('Request timed out after 45 seconds')), 45000);
+                            });
+
+                            if (!client) {
+                                throw new Error('Client unexpectedly became null');
                             }
+
+                            // Race the client request against the timeout
+                            const result = await Promise.race([
+                                client.sendRequest('tribe/createTeam', {
+                                    description: description,
+                                    team_size: 3,
+                                    temperature: 0.7,
+                                }),
+                                timeoutPromise,
+                            ]);
+
+                            // Check that result is properly formatted
+                            if (!result || typeof result !== 'object') {
+                                outputChannel.appendLine(`Invalid response format: ${JSON.stringify(result)}`);
+                                throw new Error(`Invalid response format from server: ${JSON.stringify(result)}`);
+                            }
+
+                            // Check for error in the result object
+                            if (result && typeof result === 'object' && 'error' in result) {
+                                const errorMsg = (result as any).error;
+                                outputChannel.appendLine(`Error from server: ${errorMsg}`);
+
+                                // Check if the error is about the API key
+                                if (errorMsg.includes('ANTHROPIC_API_KEY') || errorMsg.includes('API key')) {
+                                    vscode.window.showInformationMessage(
+                                        'API key not configured. Creating team in offline mode.',
+                                    );
+                                    return createFallbackTeam(description);
+                                } else {
+                                    throw new Error(`Server returned error: ${errorMsg}`);
+                                }
+                            }
+
+                            progress.report({ increment: 100, message: 'Team created!' });
+
+                            // Show a success message
+                            vscode.window.showInformationMessage('Team created successfully!');
+
+                            return result;
+                        } catch (err) {
+                            // If we get a content-length or write after end error, mark the server as not started
+                            // to force a complete reinit next time
+                            const errorMsg = String(err);
+                            if (errorMsg.includes('write after end') || errorMsg.includes('Content-Length')) {
+                                outputChannel.appendLine(
+                                    `Detected protocol error: ${errorMsg}, marking server for restart`,
+                                );
+                                serverStatus = ServerStatus.NotStarted;
+                                startupPromise = null;
+                            }
+
+                            outputChannel.appendLine(`Error in team creation request: ${err}`);
+
+                            // Try to create a fallback team instead of throwing
+                            outputChannel.appendLine('Creating fallback team due to error');
+                            vscode.window.showInformationMessage(
+                                'Server error - creating team in offline mode instead.',
+                            );
+                            return createFallbackTeam(description);
                         }
-                        
-                        progress.report({ increment: 100, message: "Team created!" });
-                        
-                        // Show a success message
-                        vscode.window.showInformationMessage('Team created successfully!');
-                        
-                        return result;
-                    } catch (err) {
-                        // If we get a "write after end" error, mark the server as not started
-                        // to force a complete reinit next time
-                        const errorMsg = String(err);
-                        if (errorMsg.includes('write after end')) {
-                            outputChannel.appendLine('Detected "write after end" error, marking server for full restart');
-                            serverStatus = ServerStatus.NotStarted;
-                            startupPromise = null;
-                        }
-                        
-                        outputChannel.appendLine(`Error in team creation request: ${err}`);
-                        
-                        // Try to create a fallback team instead of throwing
-                        outputChannel.appendLine('Creating fallback team due to error');
-                        vscode.window.showInformationMessage('Server error - creating team in offline mode instead.');
-                        return createFallbackTeam(description);
-                    }
-                });
-                
+                    },
+                );
+
                 // Log the successful result
                 outputChannel.appendLine('Team creation completed with result: ' + JSON.stringify(result));
                 return result;
             } catch (err) {
+                // Catch block for the outer try statement
                 outputChannel.appendLine(`Error creating team: ${err}`);
                 vscode.window.showErrorMessage(`Error creating team: ${err}`);
-                
-                // Even if there's an error, return a fallback team
-                vscode.window.showErrorMessage('Unable to create team normally, using offline mode.');
                 return createFallbackTeam(description);
             }
         }),
-        
+
         // Simple command to open the output channel - helpful for debugging
         vscode.commands.registerCommand('tribe.showOutput', () => {
             outputChannel.show();
         }),
         
+        // Environment variable management commands
+        vscode.commands.registerCommand('tribe.getEnvironmentManager', () => {
+            return EnvironmentManager.getInstance();
+        }),
+        
+        // Command to open the environment variables manager
+        vscode.commands.registerCommand('tribe.openEnvironmentManager', () => {
+            // Create a webview panel in a new editor column to show the env manager
+            const panel = vscode.window.createWebviewPanel(
+                'tribeEnvironmentManager',
+                'Tribe Environment Variables',
+                vscode.ViewColumn.Beside,
+                {
+                    enableScripts: true
+                }
+            );
+            
+            // Create and initialize the webview
+            panel.webview.html = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Tribe Environment Variables</title>
+                    <style>
+                        body { font-family: var(--vscode-font-family); padding: 20px; }
+                        h1 { color: var(--vscode-foreground); }
+                    </style>
+                </head>
+                <body>
+                    <h1>Tribe Environment Variables</h1>
+                    <p>Loading environment manager...</p>
+                </body>
+                </html>
+            `;
+            
+            // When the panel is ready, send a message to load the environment variables
+            panel.webview.onDidReceiveMessage(message => {
+                switch (message.type) {
+                    case 'READY':
+                        // Send the initial list of env files
+                        const envManager = EnvironmentManager.getInstance();
+                        const envFiles = envManager.scanEnvFiles();
+                        panel.webview.postMessage({
+                            type: 'ENV_FILES_RESULT',
+                            payload: {
+                                envFiles
+                            }
+                        });
+                        break;
+                }
+            });
+        }),
+
         // Command to show diagnostics info
         vscode.commands.registerCommand('tribe.showDiagnostics', async () => {
             try {
@@ -949,27 +1427,27 @@ export function activate(context: vscode.ExtensionContext) {
                         path: vscode.extensions.getExtension('mightydev.tribe')?.extensionPath || 'unknown',
                     },
                     client: {
-                        state: client ? client["_state"] : 'Not initialized',
-                        running: client ? client["_serverProcess"] !== undefined : false
+                        state: client ? client['_state'] : 'Not initialized',
+                        running: client ? client['_serverProcess'] !== undefined : false,
                     },
                     python: {
                         path: process.env.PYTHONPATH || 'Not set',
-                        version: await vscode.commands.executeCommand('python.interpreterPath') || 'unknown'
+                        version: (await vscode.commands.executeCommand('python.interpreterPath')) || 'unknown',
                     },
                     env: {
                         modelSet: Boolean(API_ENDPOINTS.MODEL),
-                        model: API_ENDPOINTS.MODEL || 'Not set'
-                    }
+                        model: API_ENDPOINTS.MODEL || 'Not set',
+                    },
                 };
-                
+
                 // Create a diagnostics panel
                 const panel = vscode.window.createWebviewPanel(
                     'tribeDiagnostics',
                     'Tribe Diagnostics',
                     vscode.ViewColumn.One,
-                    { enableScripts: true }
+                    { enableScripts: true },
                 );
-                
+
                 // Format the diagnostics data as HTML
                 panel.webview.html = `<!DOCTYPE html>
                 <html lang="en">
@@ -1062,9 +1540,9 @@ export function activate(context: vscode.ExtensionContext) {
                     </script>
                 </body>
                 </html>`;
-                
+
                 // Handle webview messages
-                panel.webview.onDidReceiveMessage(message => {
+                panel.webview.onDidReceiveMessage((message) => {
                     switch (message.command) {
                         case 'restart':
                             vscode.commands.executeCommand('tribe.restart');
@@ -1078,9 +1556,9 @@ export function activate(context: vscode.ExtensionContext) {
                 outputChannel.appendLine(`Error showing diagnostics: ${err}`);
                 vscode.window.showErrorMessage(`Error showing diagnostics: ${err}`);
             }
-        })
+        }),
     );
-    
+
     // The server will be started on demand when needed
     outputChannel.appendLine('Extension activated. Server will start when needed.');
 }
@@ -1089,12 +1567,33 @@ export function deactivate(): Thenable<void> | undefined {
     if (!client) {
         return undefined;
     }
-    
+
     // When VSCode is shutting down, make sure we properly clean up
     outputChannel.appendLine('Tribe extension deactivating, stopping server...');
-    serverStatus = ServerStatus.NotStarted;  // Mark as not started
-    
+    serverStatus = ServerStatus.NotStarted; // Mark as not started
+
     try {
+        // Clean up the reader and writer explicitly to prevent lingering connections
+        try {
+            // Access connection internals safely with try-catch
+            if ((client as any)._connection) {
+                const connection = (client as any)._connection;
+
+                if (connection._reader && typeof connection._reader.dispose === 'function') {
+                    outputChannel.appendLine('Cleaning up connection reader...');
+                    connection._reader.dispose();
+                }
+
+                if (connection._writer && typeof connection._writer.dispose === 'function') {
+                    outputChannel.appendLine('Cleaning up connection writer...');
+                    connection._writer.dispose();
+                }
+            }
+        } catch (e) {
+            outputChannel.appendLine(`Error during connection cleanup: ${e}`);
+        }
+
+        // Stop the client
         return client.stop();
     } catch (err) {
         outputChannel.appendLine(`Error stopping client during deactivation: ${err}`);

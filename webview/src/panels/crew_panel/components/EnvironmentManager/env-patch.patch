@@ -1,0 +1,18 @@
+--- CrewPanel.tsx
++++ CrewPanel.tsx
+@@ -1358,6 +1358,16 @@
+ 							/>
+ 						)}
++						{learningSubTab === 'environment' && (
++							<EnvironmentManager
++								onSave={(variables) => {
++									vscode.postMessage({
++										type: 'UPDATE_ENV_VARIABLES',
++										payload: { variables }
++									});
++								}}
++							/>
++						)}
+ 					</div>
+ 				</div>
+ 			);
