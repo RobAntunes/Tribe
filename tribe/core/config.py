@@ -20,6 +20,25 @@ class Config:
         self.max_rpm = int(os.getenv("TRIBE_MAX_RPM", "60"))
         self.verbose = os.getenv("TRIBE_VERBOSE", "true").lower() == "true"
         
+        # CrewAI agent configuration defaults
+        self.agent_defaults = {
+            "allow_delegation": os.getenv("TRIBE_ALLOW_DELEGATION", "true").lower() == "true",
+            "allow_code_execution": os.getenv("TRIBE_ALLOW_CODE_EXECUTION", "false").lower() == "true",
+            "memory": True,
+            "memory_config": {
+                "type": os.getenv("TRIBE_MEMORY_TYPE", "buffer"),
+                "max_tokens": int(os.getenv("TRIBE_MEMORY_MAX_TOKENS", "10000"))
+            },
+            "verbose": self.verbose
+        }
+        
+        # System configuration
+        self.system = {
+            "default_model": os.getenv("TRIBE_MODEL", "anthropic/claude-3-7-sonnet-20250219"),
+            "collaboration_mode": os.getenv("TRIBE_COLLABORATION_MODE", "HYBRID"),
+            "process_type": os.getenv("TRIBE_PROCESS_TYPE", "hierarchical")
+        }
+        
     @classmethod
     def get_instance(cls) -> 'Config':
         """Get or create the singleton configuration instance."""

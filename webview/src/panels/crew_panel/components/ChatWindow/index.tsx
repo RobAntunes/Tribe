@@ -90,7 +90,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 data-vp={message.isVPResponse ? "true" : "false"}
             >
                 <div className="message-header">
-                    <span className="sender">{senderDisplay}</span>
+                    <div className="message-sender-info">
+                        <span className="sender">{senderDisplay}</span>
+                        {message.type === 'agent' && message.agentContext && (
+                            <span className="sender-role">{message.agentContext.role}</span>
+                        )}
+                    </div>
                     <span className="timestamp">
                         {new Date(message.timestamp).toLocaleString()}
                     </span>
@@ -104,6 +109,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     ) : (
                         <div className="message-text">
                             <MarkdownRenderer content={message.content || ''} />
+                            {message.type === 'agent' && message.agentContext?.backstory && (
+                                <div className="agent-context-tooltip">
+                                    <div className="tooltip-icon" title="Agent backstory">i</div>
+                                    <div className="tooltip-content">
+                                        <h4>{message.agentContext.name || senderDisplay}</h4>
+                                        <p className="agent-role">{message.agentContext.role}</p>
+                                        <p className="agent-backstory">{message.agentContext.backstory}</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

@@ -692,6 +692,11 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 		// Determine if this is a loading message
 		const isLoading = payload.status === 'loading';
 		
+		// Find agent information if available
+		const agent = payload.sender && typeof payload.sender === 'string' && payload.sender !== 'system' && payload.sender !== 'user'
+			? projectState.agents.find(a => a.id === payload.sender || a.name === payload.sender)
+			: null;
+		
 		// Create the message object
 		const message: Message = {
 			id: payload.id || `msg-${Date.now()}`,
@@ -706,7 +711,17 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 			isTeamMessage: payload.isTeamMessage,
 			status: payload.status,
 			isLoading,
-			originalResponses: payload.originalResponses
+			originalResponses: payload.originalResponses,
+			// Preserve any agent context included in the response
+			agentContext: payload.agentContext || (agent ? {
+				id: agent.id,
+				name: agent.name,
+				role: agent.role,
+				description: agent.description,
+				backstory: agent.backstory,
+				skills: agent.skills || [],
+				tools: agent.tools || []
+			} : undefined)
 		};
 		
 		// If we have a loading message with the same ID, replace it
@@ -747,6 +762,11 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 	const sendMessage = () => {
 		if (!newMessageContent.trim()) return;
 		
+		// Find target agent context
+		const targetAgent = targetAgentId 
+			? projectState.activeAgents.find(a => a.id === targetAgentId) 
+			: null;
+		
 		// Create user message
 		const userMessage: Message = {
 			id: `user-${Date.now()}`,
@@ -775,13 +795,25 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 		// Add loading message
 		setCurrentMessages(prevMessages => [...prevMessages, loadingMessage]);
 		
-		// Send message to extension
+		// Send message to extension with full agent context if available
 		vscode.postMessage({
 			type: 'SEND_MESSAGE',
 			payload: {
 				content: newMessageContent,
 				targetAgent: targetAgentId,
-				loadingMessageId: loadingMessage.id
+				loadingMessageId: loadingMessage.id,
+				// Include complete agent context if available
+				agentContext: targetAgent ? {
+					id: targetAgent.id,
+					name: targetAgent.name,
+					role: targetAgent.role,
+					description: targetAgent.description,
+					backstory: targetAgent.backstory,
+					skills: targetAgent.skills,
+					tools: targetAgent.tools
+				} : null,
+				// Specify if this is for all agents
+				isGroupMessage: targetAgentId === null
 			}
 		});
 		

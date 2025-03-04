@@ -57,6 +57,16 @@ export interface Agent {
     learningEnabled?: boolean;
 }
 
+export interface AgentContext {
+    id: string;
+    name?: string;
+    role?: string;
+    description?: string;
+    backstory?: string;
+    skills?: string[];
+    tools?: string[] | Array<{name: string; description: string;}>;
+}
+
 export interface Message {
     id: string;
     sender: string;
@@ -73,6 +83,7 @@ export interface Message {
     isLoading?: boolean;
     isError?: boolean;
     status?: 'loading' | 'error' | 'complete';
+    agentContext?: AgentContext; // Full agent context for the sender (if agent) or targetAgent
 }
 
 export interface Team {

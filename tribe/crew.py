@@ -192,6 +192,7 @@ class Tribe:
             backstory="I am the Genesis VP of Engineering, responsible for creating and managing AI agent teams.",
             goal="Optimizing team performance and delivering high-quality results",
             allow_delegation=True,
+            allow_code_execution=False,  # VP should not execute code directly
             memory=True,
             verbose=True,
             tools=[
@@ -268,6 +269,7 @@ class Tribe:
                         backstory=spec.get("backstory", f"Expert in {spec['role']}"),
                         goal=spec["goal"],
                         allow_delegation=True,
+                        allow_code_execution=False,  # Disable code execution by default
                         memory=True,
                         verbose=True,
                         tools=[

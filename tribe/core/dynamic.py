@@ -17,7 +17,7 @@ from ..core.foundation_model import FoundationModelInterface
 import time
 import enum
 import re
-from .config import config
+from .config import config, Config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -304,7 +304,9 @@ class VPEngineeringModel(TeamResponse):
 class DynamicAgent:
     """Specialized agent for bootstrapping teams and analyzing project requirements."""
 
-    def __init__(self, role: str, goal: str, backstory: str, model: Optional[str] = None):
+    def __init__(self, role: str, goal: str, backstory: str, model: Optional[str] = None, 
+                 allow_delegation: bool = None, allow_code_execution: bool = None, 
+                 memory: bool = True, verbose: bool = None):
         """
         Initialize the dynamic agent.
 
@@ -313,9 +315,15 @@ class DynamicAgent:
             goal: The agent's goal
             backstory: The agent's backstory
             model: Optional model name override
+            allow_delegation: Whether the agent can delegate tasks to other agents
+            allow_code_execution: Whether the agent can execute code
+            memory: Whether the agent has memory
+            verbose: Whether to be verbose in logging
         """
-        self.model = model or "anthropic/claude-3-7-sonnet-20250219"
-            
+        # Get configuration defaults
+        self.model = model or config.get('system', {}).get('default_model', "anthropic/claude-3-7-sonnet-20250219")
+        
+        # Agent-specific attributes
         self.role = role
         self.goal = goal
         self.backstory = backstory
@@ -324,6 +332,13 @@ class DynamicAgent:
         self.name = ""
         self.short_description = ""
         self.status = "active"
+        
+        # Apply configuration defaults for agent behavior
+        agent_defaults = config.get('agent_defaults', {})
+        self.allow_delegation = allow_delegation if allow_delegation is not None else agent_defaults.get('allow_delegation', True)
+        self.allow_code_execution = allow_code_execution if allow_code_execution is not None else agent_defaults.get('allow_code_execution', False)
+        self.has_memory = memory if memory is not None else agent_defaults.get('memory', True)
+        self.verbose = verbose if verbose is not None else agent_defaults.get('verbose', True)
         
         # Initialize collaboration tasks list
         self._collaboration_tasks = []
@@ -1463,8 +1478,9 @@ class DynamicCrew:
         return execution_ids
 
     async def create_agent(self, role: str, name: str, backstory: str, goal: str, 
-                     allow_delegation: bool = True, memory: bool = True, 
-                     verbose: bool = True, tools: List[str] = None) -> DynamicAgent:
+                     allow_delegation: bool = None, allow_code_execution: bool = None,
+                     memory: bool = None, verbose: bool = None, 
+                     tools: List[str] = None) -> DynamicAgent:
         """
         Create a new agent with specified parameters.
         
@@ -1474,6 +1490,7 @@ class DynamicCrew:
             backstory (str): The backstory of the agent
             goal (str): The goal of the agent
             allow_delegation (bool): Whether the agent can delegate tasks
+            allow_code_execution (bool): Whether the agent can execute code
             memory (bool): Whether the agent has memory
             verbose (bool): Whether the agent is verbose
             tools (List[str]): List of tool names the agent can use
@@ -1483,12 +1500,32 @@ class DynamicCrew:
         """
         logging.info(f"Creating agent with role: {role}, name: {name}")
         
-        # Create the agent
+        # Get config defaults
+        agent_defaults = config.agent_defaults if hasattr(config, 'agent_defaults') else {}
+        
+        # Use defaults from config if parameters not specified
+        if allow_delegation is None:
+            allow_delegation = agent_defaults.get('allow_delegation', True)
+        
+        if allow_code_execution is None:
+            allow_code_execution = agent_defaults.get('allow_code_execution', False)
+            
+        if memory is None:
+            memory = agent_defaults.get('memory', True)
+            
+        if verbose is None:
+            verbose = agent_defaults.get('verbose', True)
+        
+        # Create the agent with all parameters
         agent = DynamicAgent(
             role=role,
             goal=goal,
             backstory=backstory,
-            model=self.config.get('model')
+            model=self.config.get('model'),
+            allow_delegation=allow_delegation,
+            allow_code_execution=allow_code_execution,
+            memory=memory,
+            verbose=verbose
         )
         
         # Set additional properties
