@@ -691,8 +691,7 @@ The human should get a comprehensive understanding of the team's collective outp
                 while adapting to new requirements and challenges. Remember that building software
                 is a collaborative effort requiring multiple specialized agents working together.
                 Your team must have enough agents to handle all aspects of development, from
-                architecture and coding to testing and deployment.""",
-                        api_endpoint=api_endpoint
+                architecture and coding to testing and deployment."""
                     )
                     
                     # Give the VP a memorable character name with role
@@ -767,7 +766,7 @@ The human should get a comprehensive understanding of the team's collective outp
             You are {self.name}, a VP of Engineering with the following backstory:
             {getattr(self, 'backstory', 'An experienced technical leader with expertise in team building and project planning.')}
             
-            Your response will be parsed by a machine learning system, so it's critical that your output follows these rules:
+            It is critical that your output follows these rules:
             1. Respond ONLY with a valid JSON object.
             2. Do not include any explanations, markdown formatting, or text outside the JSON.
             3. Do not use ```json code blocks or any other formatting.
@@ -793,11 +792,10 @@ The human should get a comprehensive understanding of the team's collective outp
             Your response must follow this JSON structure:
             ```
             {
-                vision: string, # Project vision statement
-                agents: List[AgentModel] # List of agents with name, role, backstory, goal
-                tasks: List[TaskModel] # List of tasks with description, expected_output, agent
-                tools: List[ToolModel] # List of tools needed with name, description, capabilities
-                flows: List[FlowModel] # List of workflow flows with name, description, steps
+                "vision": string, # Project vision statement
+                "agents": List[AgentModel], # List of agents with name, role, backstory, goal
+                "tasks": List[TaskModel], # List of tasks with description, expected_output, agent
+                "tools": List[ToolModel] # List of tools needed with name, description, capabilities
             }
             ```
             """
@@ -816,6 +814,7 @@ The human should get a comprehensive understanding of the team's collective outp
                 if isinstance(result, str):
                     blueprint = json.loads(result)
                 else:
+                    # Result is already a parsed object
                     blueprint = result
                 
                 # If we're successful, save to a cache for future reference

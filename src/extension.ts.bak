@@ -698,8 +698,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Check if client is still in a valid state
             try {
-                const isHealthy =
-                    client &&
+                const isHealthy = client &&
                     (client as any)._connection &&
                     (client as any)._connection._writer &&
                     !(client as any)._connection._writer.hasEnded &&
@@ -1040,10 +1039,9 @@ export function activate(context: vscode.ExtensionContext) {
                     client = null;
                 }
 
-                serverStatus = ServerStatus.Error;
-                clearTimeout(timeout);
-                resolve(false);
-            }
+            serverStatus = ServerStatus.Error;
+            clearTimeout(timeout);
+            resolve(false);
         });
 
         return startupPromise;
@@ -1165,7 +1163,7 @@ export function activate(context: vscode.ExtensionContext) {
                                         client.stop(),
                                         new Promise((_, reject) => {
                                             setTimeout(() => reject(new Error('Stop timed out')), 5000);
-                                        }),
+                                        })
                                     ]).catch((e) => outputChannel.appendLine(`Expected error during stop: ${e}`));
                                 } catch (stopErr) {
                                     outputChannel.appendLine(`Error stopping client: ${stopErr}`);

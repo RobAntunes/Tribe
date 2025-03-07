@@ -59,7 +59,7 @@ module.exports = {
             options: {
               postcssOptions: {
                 plugins: [
-                  ['tailwindcss', {
+                  ['@tailwindcss/postcss', {
                     config: path.resolve(__dirname, './tailwind.config.js')
                   }],
                   ['autoprefixer', {}]

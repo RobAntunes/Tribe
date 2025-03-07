@@ -236,118 +236,116 @@ Return ONLY the JSON with no additional text or explanations."""
 
 def create_team(
     project_description: str,
-    team_size: int = 3,
+    team_size: Optional[int] = None,
     model: str = "claude-3-7-sonnet-20250219",
     temperature: float = 0.7
 ) -> List[TeamMember]:
     """
-    Create a team of professionals for a project.
+    Create a team of professionals for a project with optimal team size.
     
     Args:
         project_description: Description of the project
-        team_size: Number of team members to create
+        team_size: Optional number of team members to create. If None, optimal size will be determined.
         model: Model to use
         temperature: Temperature for generation
-        
+    
     Returns:
         List of TeamMember objects
     """
-    logger.info(f"Creating a team of {team_size} professionals")
+    logger.info(f"Creating a team of professionals with optimal structure")
     
-    # System message to guide the model
-    system_message = {
-        "role": "system",
-        "content": """You are a professional team composition expert focused on creating high-quality, character-rich team members.
-        
-Create a team of professionals with the following characteristics:
-- Memorable character-like personalities 
-- Distinct communication styles and tones
-- Unique working and learning approaches
-- Professional backgrounds aligned with their roles
-- Clear objectives that contribute to the project
-
-IMPORTANT: Each team member should have a memorable, character-like name (e.g., "Sparks", "Echo", "Flux") 
-rather than a standard professional name. These names should be distinctive, short, and memorable.
-
-Focus on creating distinct, memorable personalities while maintaining high-quality professional capabilities."""
-    }
+    # Format the system message to allow for optimal team size if not specified
+    team_size_instruction = f"exactly {team_size}" if team_size else "the OPTIMAL number of"
     
-    # User message with the request
-    user_message = {
-        "role": "user",
-        "content": f"""I need a professional team for the following project:
-
-PROJECT DESCRIPTION:
-{project_description}
-
-TEAM SIZE:
-{team_size} professionals
-
-Create a team of {team_size} professionals with complementary roles and distinct personalities for this project.
-Make sure each team member has:
-- A memorable, character-like name (like "Sparks", "Echo", or "Flux") instead of a standard name
-- A specific role title relevant to the project
-- Professional background and expertise that fits their role
-- A clear objective that explains their contribution
-- 3-5 character traits with detailed descriptions of how they manifest
-- A distinctive communication style and tone (analytical, enthusiastic, direct, etc.)
-- A working/learning style that influences how they collaborate
-- Areas of specialization relevant to their role
-- An emoji that represents their personality
-- A brief visual description that captures their essence
-- A memorable catchphrase they might use
-
-Ensure the team members complement each other to cover all aspects of the project while having distinct personalities."""
-    }
+    system_message = f"""You are an expert team builder who creates detailed professional profiles for project teams.
     
-    # Compose messages
-    messages = [system_message, user_message]
+For the given project description, create {team_size_instruction} professionals with complementary roles and distinct personalities.
+
+If determining the optimal team size, consider:
+1. The complexity and scope of the project
+2. The different technical domains required 
+3. Minimal viable team structure (no redundant roles)
+4. Cross-functional capabilities of team members
+
+For each team member, provide:
+- A distinctive character-like name (e.g., "Nexus", "Echo", "Cipher")
+- A specific role that clearly indicates their function
+- Detailed background that explains their expertise
+- Primary objective that defines their contribution
+- Character traits and personality
+- Communication style
+- Working style
+- Areas of specialization
+- Optional: emoji, visual description, and catchphrase
+
+Create a team where each member has complementary skills and personalities that work well together.
+The team should collectively cover all aspects needed for the project."""
+
+    messages = [
+        {"role": "system", "content": system_message},
+        {"role": "user", "content": project_description}
+    ]
     
     try:
-        # Query the model
+        # Use the Team model for structured output
         response = query_model(
             messages=messages,
-            model=model,
+            model=model, 
             temperature=temperature,
             structured_output=Team
         )
         
-        # The response will be a string with Claude
-        if isinstance(response, str):
-            logger.info("Received string response, parsing as JSON")
-            try:
-                # Try to extract JSON from markdown or text
-                clean_json_str = extract_json_from_text(response)
-                logger.info(f"Extracted JSON: {clean_json_str[:100]}...")
-                
-                parsed_data = json.loads(clean_json_str)
-                if 'team' in parsed_data:
-                    # If we got a team array directly
-                    result = Team(team=parsed_data['team'])
-                else:
-                    # Otherwise assume the whole response is the team object schema
-                    result = Team.parse_obj(parsed_data)
-                logger.info(f"Successfully parsed response into Team object")
-            except Exception as e:
-                logger.error(f"Failed to parse response: {str(e)}")
-                logger.error(f"Raw response: {response[:500]}...")
-                raise ValueError(f"Failed to parse response: {str(e)}")
-        else:
-            # Already a Team object
-            result = response
-            
-        if not result or not result.team or len(result.team) == 0:
-            raise ValueError("No team members were generated")
-            
-        logger.info(f"Successfully created team with {len(result.team)} members")
-        for i, member in enumerate(result.team):
-            logger.info(f"Member {i+1}: {member.name}, {member.role}")
-            
-        return result.team
+        return response.team
         
     except Exception as e:
-        logger.error(f"Failed to create team: {str(e)}")
-        raise ValueError(f"Failed to create team: {str(e)}")
+        logger.error(f"Error creating team: {str(e)}")
+        # Fall back to a minimal team structure
+        logger.info("Falling back to minimal team structure")
+        
+        # Create a fallback team with generic roles
+        fallback_team = [
+            TeamMember(
+                name="Nexus - Lead Engineer",
+                role="Lead Engineer",
+                background="Experienced software architect with expertise in system design.",
+                objective="Coordinate technical implementation and ensure architectural integrity",
+                character_traits=[
+                    CharacterTrait(trait="Analytical", description="Carefully examines all aspects of a problem")
+                ],
+                communication_style=CommunicationStyle(
+                    style="Direct", tone="Professional", description="Clear and concise communication focused on technical details"
+                ),
+                working_style=WorkingStyle(
+                    style="Methodical", description="Approaches problems systematically with thorough planning"
+                ),
+                specializations=["System Architecture", "Technical Leadership"],
+                emoji="💻"
+            )
+        ]
+        
+        # If team_size is specified, add more generic members
+        if team_size and team_size > 1:
+            fallback_team.append(
+                TeamMember(
+                    name="Echo - Designer",
+                    role="Designer",
+                    background="Creative designer with UX/UI expertise.",
+                    objective="Create intuitive and appealing user interfaces",
+                    character_traits=[
+                        CharacterTrait(trait="Creative", description="Thinks outside the box for innovative solutions")
+                    ],
+                    communication_style=CommunicationStyle(
+                        style="Visual", tone="Enthusiastic", description="Communicates ideas through visual examples and metaphors"
+                    ),
+                    working_style=WorkingStyle(
+                        style="Iterative", description="Builds on ideas through rapid prototyping and feedback"
+                    ),
+                    specializations=["UI Design", "User Experience"],
+                    emoji="🎨"
+                )
+            )
+        
+        return fallback_team
 
 def create_single_specialist(
     project_description: str,

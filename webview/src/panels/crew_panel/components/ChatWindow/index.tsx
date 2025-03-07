@@ -53,7 +53,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     agents = [],
     messageListRef = React.createRef<HTMLDivElement>()
 }) => {
-    const [currentMessage, setCurrentMessage] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -66,13 +65,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     useEffect(() => {
         console.log('ChatWindow loadingAgent:', loadingAgent);
     }, [loadingAgent]);
-
-    const handleSend = () => {
-        if (currentMessage.trim()) {
-            onSendMessage?.(currentMessage.trim());
-            setCurrentMessage('');
-        }
-    };
 
     const renderMessage = (message: Message) => {
         // Skip rendering if message has no content
@@ -155,28 +147,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                         </div>
                     </div>
                 )}
-            </div>
-            <div className="input-container">
-                <input
-                    type="text"
-                    value={currentMessage}
-                    onChange={(e) => setCurrentMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && !disabled && handleSend()}
-                    placeholder={placeholder}
-                    className="input-field"
-                    disabled={disabled}
-                />
-                <button
-                    onClick={handleSend}
-                    disabled={!currentMessage.trim() || disabled}
-                    className="button primary send-button"
-                    aria-label="Send message"
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                </button>
             </div>
         </div>
     );

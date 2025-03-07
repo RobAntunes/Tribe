@@ -1,0 +1,1712 @@
+#!/usr/bin/env python3
+
+"""Tribe Language Server implementation."""
+
+import os
+import sys
+import json
+import time
+import logging
+import asyncio
+import traceback
+import signal
+import threading
+from typing import Dict, Any, Optional, List, Tuple, Union
+from pathlib import Path
+from pygls.server import LanguageServer
+from lsprotocol.types import (
+    TEXT_DOCUMENT_DID_OPEN,
+    TEXT_DOCUMENT_DID_CLOSE,
+    TEXT_DOCUMENT_DID_CHANGE,
+    INITIALIZE,
+    INITIALIZED,
+    SHUTDOWN,
+    EXIT,
+    InitializeParams,
+    InitializeResult,
+    MessageType,
+    ServerCapabilities,
+    TextDocumentSyncKind,
+)
+from crewai import LLM
+from crewai.tools import BaseTool
+
+# Configure logging to a file in the home directory to ensure we can write to it
+log_file = os.path.expanduser("~/tribe-server.log")
+logging.basicConfig(
+    level=logging.DEBUG,  # More verbose logging
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file if not already set
+try:
+    # Look for .env file in current directory and parent directories
+    env_file_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+        os.path.join(os.getcwd(), ".env")
+    ]
+    
+    for env_path in env_file_paths:
+        if os.path.isfile(env_path):
+            logger.info(f"Loading environment variables from {env_path}")
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        key, value = line.split('=', 1)
+                        # Only set if not already in environment
+                        if key not in os.environ or not os.environ[key]:
+                            os.environ[key] = value
+                            if 'KEY' in key or 'SECRET' in key or 'TOKEN' in key:
+                                logger.info(f"Set {key} from {env_path}")
+                            else:
+                                logger.info(f"Set {key}={value} from {env_path}")
+            # Break after loading the first .env file found
+            break
+except Exception as e:
+    logger.error(f"Error loading .env file: {e}")
+    logger.error(traceback.format_exc())
+
+# Log startup information
+logger.debug("=" * 80)
+logger.debug("TRIBE SERVER STARTING")
+logger.debug("=" * 80)
+
+# Log environment for debugging
+logger.debug(f"Python version: {sys.version}")
+logger.debug(f"Current directory: {os.getcwd()}")
+logger.debug(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}")
+logger.debug(f"TRIBE_MODEL: {os.environ.get('TRIBE_MODEL', 'Not set')}")
+logger.debug(f"TRIBE_DEBUG: {os.environ.get('TRIBE_DEBUG', 'Not set')}")
+
+# Log all environment variables in debug mode
+if os.environ.get('TRIBE_DEBUG') == 'true':
+    logger.debug("Environment variables:")
+    for key, value in sorted(os.environ.items()):
+        # Don't log actual API keys, just their existence
+        if 'KEY' in key or 'SECRET' in key or 'TOKEN' in key or 'PASSWORD' in key:
+            logger.debug(f"  {key}: [REDACTED]")
+        else:
+            logger.debug(f"  {key}: {value}")
+
+# Log Python path and modules
+try:
+    import sys
+    logger.debug(f"sys.path: {sys.path}")
+    
+    # Log installed packages
+    import pkg_resources
+    installed_packages = [f"{d.project_name}=={d.version}" for d in pkg_resources.working_set]
+    logger.debug(f"Installed packages: {installed_packages}")
+except Exception as e:
+    logger.error(f"Error logging packages: {e}")
+
+# Add improved connection state handling
+class SafeWriter:
+    """Wrapper to safely handle write operations that check connection state."""
+    
+    def __init__(self, writer):
+        self.writer = writer
+        self._closed = False
+        
+    def write(self, data):
+        """Safely write data checking if connection is still valid."""
+        if self._closed:
+            logger.warning("Attempted to write to closed connection")
+            return False
+        
+        try:
+            result = self.writer.write(data)
+            return result
+        except Exception as e:
+            logger.error(f"Error in safe write: {e}")
+            # Mark as closed on any error to prevent further writes
+            self._closed = True
+            return False
+            
+    def close(self):
+        """Mark connection as closed."""
+        self._closed = True
+        try:
+            if hasattr(self.writer, 'close'):
+                self.writer.close()
+        except Exception as e:
+            logger.error(f"Error closing writer: {e}")
+            
+    @property
+    def closed(self):
+        """Check if connection is closed."""
+        if hasattr(self.writer, 'closed'):
+            return self._closed or self.writer.closed
+        return self._closed
+
+# Try to create the server instance with exception handling
+try:
+    logger.debug("Creating LanguageServer instance...")
+    tribe_server = LanguageServer("tribe-ls", "v1.0.0")
+    logger.debug("LanguageServer instance created successfully")
+    
+    # Register server capabilities early in initialization
+    # This registers standard capabilities like text document sync
+    server_capabilities = {
+        "textDocumentSync": {
+            "openClose": True,
+            "change": TextDocumentSyncKind.Full,
+            "willSave": False,
+            "willSaveWaitUntil": False,
+            "save": {"includeText": False}
+        },
+        # Register the custom commands explicitly
+        "executeCommandProvider": {
+            "commands": ["tribe/createTeam", "tribe/analyzeRequirements"]
+        }
+    }
+    logger.debug(f"Setting server capabilities: {server_capabilities}")
+    
+    # Patch protocol writer with SafeWriter if possible
+    if hasattr(tribe_server, '_protocol') and tribe_server._protocol is not None:
+        if hasattr(tribe_server._protocol, '_writer') and tribe_server._protocol._writer is not None:
+            original_writer = tribe_server._protocol._writer
+            tribe_server._protocol._writer = SafeWriter(original_writer)
+            logger.info("Successfully wrapped protocol writer with SafeWriter")
+            
+    # If protocol isn't available yet, wait until it's initialized
+    # Commenting out this duplicate registration of the INITIALIZED feature
+    # @tribe_server.feature(INITIALIZED)
+    async def wrap_protocol_writer(ls, *args, **kwargs):
+        """Wrap the protocol writer after initialization."""
+        try:
+            if hasattr(ls, '_protocol') and ls._protocol is not None:
+                if hasattr(ls._protocol, '_writer') and ls._protocol._writer is not None:
+                    # Check if it's already wrapped
+                    if not isinstance(ls._protocol._writer, SafeWriter):
+                        original_writer = ls._protocol._writer
+                        ls._protocol._writer = SafeWriter(original_writer)
+                        logger.info("Successfully wrapped protocol writer with SafeWriter after initialization")
+        except Exception as e:
+            logger.error(f"Error wrapping protocol writer: {e}")
+except Exception as e:
+    logger.error(f"Error creating LanguageServer: {str(e)}")
+    logger.error(traceback.format_exc())
+    # Re-raise to fail fast if we can't create the server
+    raise
+
+# Global LLM variable
+llm = None
+
+# Initialize the LLM
+def initialize_llm():
+    """Initialize the LLM using the Anthropic API."""
+    try:
+        logger.info("Initializing LLM...")
+        
+        # Import at function level to avoid circular imports
+        import os
+        from crewai import LLM
+        
+        model_name = os.environ.get("TRIBE_MODEL", "claude-3-sonnet-20240229")
+        logger.info(f"Initializing LLM with model: {model_name}")
+        
+        # Check and log if the API key is available
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if api_key:
+            logger.info(f"ANTHROPIC_API_KEY found in environment: {api_key[:5]}...{api_key[-4:]}")
+        else:
+            logger.warning("ANTHROPIC_API_KEY not found in environment")
+            
+        try:
+            # Try to create the real LLM
+            llm = LLM(model=model_name, temperature=0.7)
+            logger.info("LLM initialized successfully with model: %s", model_name)
+            return True
+        except Exception as e:
+            # If the real LLM fails to initialize, log the error and create a mock
+            logger.error(f"Error initializing real LLM: {str(e)}")
+            
+            # If we get here and we have no LLM yet, create a mock one
+            if llm is None:
+                logger.warning("Creating fallback mock LLM due to initialization error")
+                class MockLLM:
+                    def __init__(self, model, temperature):
+                        self.model = model
+                        self.temperature = temperature
+                        logger.debug(f"Fallback MockLLM created with model={model}, temp={temperature}")
+                    
+                    def call(self, messages=None, **kwargs):
+                        logger.debug(f"Fallback MockLLM.call called with messages={messages}")
+                        return f"Fallback mock response - LLM initialization failed"
+                
+                llm = MockLLM(model=model_name, temperature=0.7)
+            
+            return False
+    except Exception as e:
+        logger.error(f"Error initializing LLM: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Continue without crashing as the LLM might be initialized later
+        return False
+
+# Try to initialize the LLM on module load but don't crash if it fails
+try:
+    initialize_llm()
+except Exception as e:
+    logger.error(f"Unexpected error during LLM initialization: {str(e)}")
+    logger.error(traceback.format_exc())
+
+# Add error handlers to all LSP operations
+@tribe_server.feature(INITIALIZE)
+async def initialize(params: InitializeParams) -> InitializeResult:
+    """Initialize the language server."""
+    try:
+        logger.info("Initializing Tribe language server...")
+        logger.debug(f"Initialize params: {params}")
+        
+        # Configure server capabilities with our custom command
+        capabilities = ServerCapabilities(
+            text_document_sync=TextDocumentSyncKind.Full,
+            execute_command_provider={
+                "commands": ["tribe/createTeam", "tribe/analyzeRequirements"]
+            }
+        )
+        
+        # Log the capabilities we're sending
+        logger.info(f"Sending capabilities: {capabilities}")
+        
+        # Pre-register our command handlers for compatibility
+        # This works around potential issues with different pygls versions
+        if hasattr(tribe_server, "command_handlers"):
+            # Check if command is already registered
+            if "tribe/createTeam" not in tribe_server.command_handlers:
+                tribe_server.command_handlers["tribe/createTeam"] = create_team_implementation
+                logger.info("Directly registered tribe/createTeam in command_handlers")
+            else:
+                logger.info("tribe/createTeam already registered in command_handlers, skipping")
+        elif hasattr(tribe_server, "_commands"):
+            # Check if command is already registered
+            if "tribe/createTeam" not in tribe_server._commands:
+                tribe_server._commands["tribe/createTeam"] = create_team_implementation
+                logger.info("Directly registered tribe/createTeam in _commands")
+            else:
+                logger.info("tribe/createTeam already registered in _commands, skipping")
+        
+        # Also patch the command handler map if it exists
+        try:
+            from pygls.protocol import JsonRPCRequestHandler
+            if hasattr(JsonRPCRequestHandler, 'REQUEST_HANDLERS'):
+                # Only add if not already present
+                if 'tribe/createTeam' not in JsonRPCRequestHandler.REQUEST_HANDLERS:
+                    # Add our commands to the global registry
+                    JsonRPCRequestHandler.REQUEST_HANDLERS['tribe/createTeam'] = create_team_implementation
+                    logger.info("Added tribe/createTeam to JsonRPCRequestHandler.REQUEST_HANDLERS")
+                else:
+                    logger.info("tribe/createTeam already in JsonRPCRequestHandler.REQUEST_HANDLERS, skipping")
+        except Exception as register_err:
+            logger.warning(f"Could not patch REQUEST_HANDLERS: {register_err}")
+            
+        # Create a properly formatted response to ensure Content-Length is added
+        result = {
+            "jsonrpc": "2.0",
+            "result": {
+                "capabilities": capabilities
+            }
+        }
+        
+        logger.info("Returning initialize result with explicit content")
+        return InitializeResult(capabilities=capabilities)
+    except Exception as e:
+        logger.error(f"Error in initialize: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Still need to return a result to avoid protocol errors
+        return InitializeResult(capabilities=ServerCapabilities())
+
+@tribe_server.feature(INITIALIZED)
+async def initialized(params):
+    """Handle initialized notification."""
+    try:
+        logger.info("Tribe language server initialized!")
+        
+        # Log all registered command handlers
+        try:
+            # In newer pygls versions, commands are stored differently
+            # Try multiple attributes to find the commands
+            if hasattr(tribe_server, '_commands'):
+                commands = tribe_server._commands.keys()
+                logger.info(f"Registered commands: {list(commands)}")
+            elif hasattr(tribe_server, 'fm') and hasattr(tribe_server.fm, 'features'):
+                commands = tribe_server.fm.features.keys()
+                logger.info(f"Registered commands (fm.features): {list(commands)}")
+            else:
+                logger.info("Could not find commands registry attribute")
+        except Exception as e:
+            logger.error(f"Error listing commands: {str(e)}")
+        
+        # Now that we're initialized, we can show the message
+        try:
+            # This is optional, so wrap in try/except
+            tribe_server.show_message("Tribe language server initialized!", MessageType.Info)
+        except Exception as e:
+            logger.error(f"Error showing message (non-critical): {str(e)}")
+            
+        # Add additional verification
+        logger.info("Server is now fully initialized and ready to process commands")
+        
+    except Exception as e:
+        logger.error(f"Error in initialized: {str(e)}")
+        logger.error(traceback.format_exc())
+
+@tribe_server.feature(SHUTDOWN)
+async def shutdown(params):
+    """Handle shutdown request."""
+    try:
+        logger.info("Shutting down Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in shutdown: {str(e)}")
+        logger.error(traceback.format_exc())
+
+@tribe_server.feature(EXIT)
+async def exit(params):
+    """Handle exit notification."""
+    try:
+        logger.info("Exiting Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in exit: {str(e)}")
+        logger.error(traceback.format_exc())
+
+# Custom command handlers with enhanced error handling
+
+# Define the team creation implementation first
+async def create_team_implementation(ls, params):
+    """Implement team creation with hardcoded VP and CrewAI for other members."""
+    try:
+        logger.info(f"create_team_implementation called with params: {params}")
+        
+        # Extract the description from the parameters
+        description = None
+        if hasattr(params, 'description'):
+            description = params.description
+        elif isinstance(params, dict):
+            description = params.get('description')
+        elif hasattr(params, '__getitem__'):
+            try:
+                description = params['description']
+            except (KeyError, TypeError):
+                pass
+                
+        # Use a default description if none provided
+        if not description:
+            description = "A software development team"
+            logger.warning(f"No description provided, using default: {description}")
+        
+        logger.info(f"Creating team with description: {description}")
+        
+        try:
+            # Import CrewAI components - only if network is available
+            from crewai import Agent, Task, Crew, Process
+            from crewai import LLM
+            from crewai.tools import BaseTool
+            from pydantic import Field
+            
+            # Create the hardcoded VP of Engineering (Tank) as the first agent
+            vp_agent = {
+                "id": "agent-1",
+                "name": "Tank - VP of Engineering",
+                "role": "VP of Engineering",
+                "backstory": """As the VP of Engineering, you are responsible for bootstrapping
+                the AI ecosystem. Your purpose is to analyze requirements and oversee
+                the team needed for building and maintaining an agentic, ai-native IDE.
+        
+                You excel at analyzing project requirements thoroughly, designing complete teams
+                of specialized professionals with complementary skills, and establishing clear roles,
+                responsibilities, and collaboration patterns. You ensure the project development
+                is self-sustaining and adaptable to new requirements and challenges.
+                
+                With your strategic vision and leadership skills, you serve as the primary
+                communication hub between the team and stakeholders, orchestrating the entire
+                development process from architecture and coding to testing and deployment.""",
+                "short_description": "Orchestrates the development of an agentic, ai-native IDE with strategic vision and serves as the primary communication hub between the team and humans",
+                "is_lead": True,
+                "communication_style": "Strategic and visionary, Tank communicates with clarity and purpose, translating complex technical concepts into actionable insights for both technical and non-technical stakeholders.",
+                "working_approach": "Systems thinker who excels at breaking down large problems into manageable components and delegating effectively while maintaining overall vision alignment.",
+                "personality_traits": ["Visionary", "Decisive", "Adaptable"],
+                "interaction_quirk": "Often uses engineering metaphors from different disciplines to explain software concepts, drawing parallels between code architecture and physical structures."
+            }
+            
+            logger.info(f"VP of Engineering (Tank) hardcoded successfully")
+            
+            # Configure LLM for CrewAI - only use Claude 3.7 Sonnet as specified
+            model_name = "anthropic/claude-3-7-sonnet-20250219"
+            
+            # Set a system prompt for JSON output
+            json_instruction = """
+            You must respond with valid JSON objects only. 
+            Always include team_members as a list of objects in your response,
+            even if the list is empty.
+            The format should be: 
+            {
+              "team_members": [
+                {
+                  "id": "agent-2",
+                  "name": "CharacterName - Role",
+                  "role": "Role Title",
+                  "backstory": "Character backstory...",
+                  "short_description": "Short description of skills"
+                },
+                ...
+              ]
+            }
+            """
+            
+            # Configure LLM options for Claude API
+            llm_config = {
+                "model": model_name.replace("anthropic/", ""),  # Remove the "anthropic/" prefix
+                "temperature": 0.5,  # Balanced temperature for creativity with structure
+                "max_tokens": 8000,  # Higher token limit for more comprehensive responses
+            }
+            
+            # Create LLM with improved configuration
+            try:
+                # Configure a specific API key to avoid environment issues
+                import os
+                api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                if api_key:
+                    # Note: Don't set LITELLM_ANTHROPIC_API_KEY as that may cause issues
+                    logger.info("Using API key from environment for CrewAI")
+                
+                # Create the LLM with our optimized settings
+                llm = LLM(model=llm_config["model"], temperature=llm_config["temperature"], max_tokens=llm_config["max_tokens"])
+                logger.info(f"LLM configured for CrewAI using Claude 3.7 Sonnet")
+                
+            except Exception as e:
+                logger.error(f"Error configuring LLM for CrewAI: {str(e)}")
+                logger.error(traceback.format_exc())
+                # Continue with just the VP in this case
+                return {"project": {"team": {"agents": [vp_agent]}}}
+            
+            # Requirements Analyst - uses general text output
+            requirements_analyst = Agent(
+                role="Requirements Analyst",
+                goal="Analyze project requirements to determine needed team structure",
+                backstory="You are an expert at analyzing project requirements and identifying the skills and expertise needed for a successful team.",
+                verbose=True,
+                llm=llm,
+                tools=[ProjectRequirementsTool()]
+            )
+            
+            # Team Architect - needs JSON output for team roles
+            team_architect = Agent(
+                role="Team Architect",
+                goal="Design team structures and role definitions based on project requirements",
+                backstory="You are an expert at designing team structures with clearly defined roles that complement each other for project success.",
+                verbose=True,
+                llm=llm,
+                tools=[TeamRoleGeneratorTool()],
+                # Add system message to enforce JSON formatting
+                system_prompt=f"""You are a specialized AI that analyzes project requirements and creates optimal team structures.
+                {json_instruction}
+                
+                When designing team roles, organize them into logical teams, where each team:
+                - Has a dedicated team lead/manager role 
+                - Contains related roles that work closely together
+                - Focuses on a specific area of the project (e.g., frontend team, backend team, etc.)
+                
+                You can create as many teams and roles as needed for the project. The structure should be clear with team leads managing appropriate team members.
+                
+                Your output must be in the exact JSON format with a 'teams' array containing team objects:
+                {{
+                  "teams": [
+                    {{
+                      "team_name": "Team Name",
+                      "focus": "Team's overall focus area",
+                      "roles": [
+                        {{
+                          "title": "Team Lead/Manager", 
+                          "focus": "Leadership and coordination", 
+                          "is_lead": true
+                        }},
+                        {{
+                          "title": "Role Title", 
+                          "focus": "Description of the role's focus and responsibilities",
+                          "is_lead": false
+                        }},
+                        ...additional roles in this team...
+                      ]
+                    }},
+                    ...additional teams...
+                  ]
+                }}
+                """
+            )
+            
+            # Talent Manager - needs JSON output for team member profiles
+            talent_manager = Agent(
+                role="Talent Manager",
+                goal="Create detailed profiles for each team member with unique character names",
+                backstory="You are a creative talent manager with a gift for developing unique character identities that match technical roles. You excel at crafting memorable names and rich backstories.",
+                verbose=True,
+                llm=llm,
+                tools=[TeamMemberCreatorTool()],
+                # Add system message to enforce JSON formatting and name/backstory generation
+                system_prompt=f"""You are a specialized AI that creates detailed character profiles for team members.
+                {json_instruction}
+                
+                Your special talent is creating unique, memorable character names and rich backstories for technical professionals, 
+                organized into teams with clear reporting structures.
+                
+                For each team member, provide these ESSENTIAL elements:
+                - A distinctive single-word character name that reflects their expertise
+                - A vivid backstory that explains their skills and personality
+                - A communication style that defines how they express themselves
+                - A working approach that describes their process
+                - Personality traits that make them distinctive
+                
+                IMPORTANT: These traits are purely cosmetic and do not affect work quality. Every member produces excellent work.
+                
+                Include these additional differentiating factors for each member:
+                1. Communication style: How they communicate (direct, diplomatic, visual, methodical, etc.)
+                2. Working approach: How they tackle problems (analytical, creative, collaborative, independent, etc.)
+                3. Personality traits: 2-3 distinct traits (perfectionist, enthusiastic, pragmatic, detail-oriented, etc.)
+                4. Interaction quirk: A harmless, memorable quirk in how they interact (uses analogies, asks deep questions, etc.)
+                
+                Format the name as "CharacterName - Role" (e.g., "Vector - AI Engineer")
+                For team leads, make their backstory emphasize leadership qualities
+                
+                Organize members into their appropriate teams, maintaining the team structure provided.
+                Each team should have at least one lead/manager who oversees the other team members.
+                
+                When creating team member profiles, you must follow the exact JSON structure:
+                {{
+                  "teams": [
+                    {{
+                      "team_name": "Team Name",
+                      "focus": "Team's overall focus area",
+                      "members": [
+                        {{
+                          "id": "agent-2",
+                          "name": "CharacterName - Role", 
+                          "role": "Role Title",
+                          "is_lead": true,
+                          "backstory": "Detailed background with leadership qualities...",
+                          "short_description": "Brief description of skills and expertise",
+                          "communication_style": "How they typically communicate",
+                          "working_approach": "How they approach their work",
+                          "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
+                          "interaction_quirk": "A unique way they interact with others"
+                        }},
+                        {{
+                          "id": "agent-3",
+                          "name": "CharacterName - Role", 
+                          "role": "Role Title",
+                          "is_lead": false,
+                          "backstory": "Detailed background and personality...",
+                          "short_description": "Brief description of skills and expertise",
+                          "communication_style": "How they typically communicate",
+                          "working_approach": "How they approach their work",
+                          "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
+                          "interaction_quirk": "A unique way they interact with others"
+                        }},
+                        ...additional team members...
+                      ]
+                    }},
+                    ...additional teams...
+                  ]
+                }}
+                
+                Be creative with the character names, making them memorable and aligned with each person's role.
+                Your output must be ONLY this JSON structure, without any other text, explanations, or markdown.
+                """
+            )
+
+            # Create the CrewAI tasks
+            analyze_requirements = Task(
+                description=f"Analyze the following project description and determine what kind of team would be needed: {description}",
+                agent=requirements_analyst,
+                expected_output="A detailed analysis of the project requirements and recommendations for team structure"
+            )
+            
+            design_team = Task(
+                description="Based on the project requirements analysis, design an optimal team structure with specific roles",
+                agent=team_architect,
+                expected_output="A JSON structure with the recommended team roles and their areas of focus",
+                context=[analyze_requirements]  # This task depends on the output of the previous task
+            )
+            
+            create_members = Task(
+                description="""Create detailed profiles for each team member based on the designed team structure.
+                Each member should have a character-like name (e.g., Sparks, Nova, Cipher) followed by their role.
+                For example: 'Sparks - Lead Developer', 'Nova - UX Designer', etc.""",
+                agent=talent_manager,
+                expected_output="Detailed profiles for each team member including character name, role, and backstory",
+                context=[design_team]  # This task depends on the output of the previous task
+            )
+
+            # Create the crew
+            crew = Crew(
+                agents=[requirements_analyst, team_architect, talent_manager],
+                tasks=[analyze_requirements, design_team, create_members],
+                verbose=True,
+                process=Process.sequential  # Execute tasks in sequence
+            )
+            
+            # Run the crew to create the team
+            logger.info("Starting CrewAI execution to create additional team members")
+            
+            # We need to run the crew in a thread to avoid blocking
+            import threading
+            import asyncio
+            
+            # Function to run the crew and store the result
+            crew_result = None
+            def run_crew():
+                nonlocal crew_result
+                try:
+                    crew_result = crew.kickoff()
+                    logger.info(f"CrewAI execution completed with result: {crew_result}")
+                except Exception as e:
+                    logger.error(f"Error in CrewAI execution: {str(e)}")
+                    logger.error(traceback.format_exc())
+            
+            # Start the crew in a separate thread
+            crew_thread = threading.Thread(target=run_crew)
+            crew_thread.start()
+            
+            # Reduce timeout to 30 seconds to avoid client timeout (which is 45 seconds)
+            crew_thread.join(timeout=30)  # 30-second timeout
+            
+            # Handle the result and combine with hardcoded VP
+            additional_team_members = []
+            
+            # Process crew_result
+            if crew_thread.is_alive():
+                logger.warning("CrewAI execution timed out after 30 seconds, proceeding with just VP")
+                # We don't stop the thread - let it continue in the background
+            elif crew_result:
+                # Parse the team members from CrewAI result
+                if isinstance(crew_result, str):
+                    try:
+                        # Use the JSONExtractor to reliably parse the string output
+                        extracted_data, success = JSONExtractor.extract_json(crew_result, expected_keys=["teams"])
+                        if success and "teams" in extracted_data:
+                            teams_data = extracted_data["teams"]
+                            logger.info(f"Successfully extracted {len(teams_data)} teams using JSONExtractor")
+                            
+                            # Process all teams to create additional team members 
+                            for team in teams_data:
+                                team_members = team.get("members", [])
+                                # Add team information to each member
+                                for member in team_members:
+                                    member["team"] = team.get("team_name", "Unnamed Team")
+                                    member["team_focus"] = team.get("focus", "")
+                                    # Ensure each member has required fields
+                                    if "name" not in member or not member["name"]:
+                                        member["name"] = f"Agent - {member['role']}"
+                                    if "backstory" not in member or not member["backstory"]:
+                                        member["backstory"] = f"A skilled professional specializing in {member['role']}."
+                                
+                                # Add these members to our additional_team_members list
+                                additional_team_members.extend(team_members)
+                        else:
+                            # Try older format with team_members at root level
+                            extracted_data, success = JSONExtractor.extract_json(crew_result, expected_keys=["team_members"])
+                            if success and "team_members" in extracted_data:
+                                additional_team_members = extracted_data["team_members"]
+                                logger.info(f"Using legacy format with {len(additional_team_members)} team members")
+                            else:
+                                logger.error("JSONExtractor couldn't find team structure in the crew result")
+                    except Exception as e:
+                        logger.error(f"Error parsing CrewAI result: {str(e)}")
+                else:
+                    # Handle CrewOutput object from CrewAI
+                    try:
+                        logger.info(f"CrewAI result type: {type(crew_result)}")
+                        
+                        # Extract team members from the final task output
+                        team_members_found = False
+                        
+                        # Extract the final task output from the CrewOutput object
+                        if hasattr(crew_result, "tasks") and crew_result.tasks:
+                            # Get the Talent Manager's output (expected to be the last task)
+                            final_task = crew_result.tasks[-1]
+                            if hasattr(final_task, "output") and final_task.output:
+                                output_text = final_task.output
+                                logger.info(f"Final task output (first 100 chars): {str(output_text)[:100]}...")
+                                
+                                # Use JSONExtractor to parse the output
+                                if isinstance(output_text, str):
+                                    # Try to extract teams structure
+                                    extracted_data, success = JSONExtractor.extract_json(output_text, expected_keys=["teams"])
+                                    if success and "teams" in extracted_data:
+                                        teams_data = extracted_data["teams"]
+                                        
+                                        # Process all teams to create additional team members 
+                                        for team in teams_data:
+                                            team_members = team.get("members", [])
+                                            # Add team information to each member
+                                            for member in team_members:
+                                                member["team"] = team.get("team_name", "Unnamed Team")
+                                                member["team_focus"] = team.get("focus", "")
+                                            
+                                            # Add these members to our additional_team_members list
+                                            additional_team_members.extend(team_members)
+                                            team_members_found = True
+                                        
+                                        logger.info(f"Successfully extracted {len(additional_team_members)} team members from {len(teams_data)} teams")
+                                    else:
+                                        # Try older format with team_members at root level
+                                        extracted_data, success = JSONExtractor.extract_json(output_text, expected_keys=["team_members"])
+                                        if success and "team_members" in extracted_data:
+                                            additional_team_members = extracted_data["team_members"]
+                                            team_members_found = True
+                                            logger.info(f"Using legacy format with {len(additional_team_members)} team members")
+                                elif isinstance(output_text, dict):
+                                    if "teams" in output_text:
+                                        teams_data = output_text["teams"]
+                                        # Process teams as above
+                                        for team in teams_data:
+                                            team_members = team.get("members", [])
+                                            # Add team information to each member
+                                            for member in team_members:
+                                                member["team"] = team.get("team_name", "Unnamed Team") 
+                                                member["team_focus"] = team.get("focus", "")
+                                            
+                                            additional_team_members.extend(team_members)
+                                            team_members_found = True
+                                    elif "team_members" in output_text:
+                                        additional_team_members = output_text["team_members"]
+                                        team_members_found = True
+                        
+                        # If we didn't find team members from tasks, check if the CrewAI result itself has them
+                        if not team_members_found and hasattr(crew_result, "raw_output"):
+                            try:
+                                raw_output = crew_result.raw_output
+                                if isinstance(raw_output, str):
+                                    # Use JSONExtractor to parse the raw output - first try teams format
+                                    extracted_data, success = JSONExtractor.extract_json(raw_output, expected_keys=["teams"])
+                                    if success and "teams" in extracted_data:
+                                        teams_data = extracted_data["teams"]
+                                        
+                                        # Process all teams
+                                        for team in teams_data:
+                                            team_members = team.get("members", [])
+                                            # Add team information to each member
+                                            for member in team_members:
+                                                member["team"] = team.get("team_name", "Unnamed Team")
+                                                member["team_focus"] = team.get("focus", "")
+                                            
+                                            additional_team_members.extend(team_members)
+                                            team_members_found = True
+                                        
+                                        logger.info(f"Successfully extracted {len(additional_team_members)} team members from raw_output with {len(teams_data)} teams")
+                                    else:
+                                        # Try legacy format with team_members at root
+                                        extracted_data, success = JSONExtractor.extract_json(raw_output, expected_keys=["team_members"])
+                                        if success and "team_members" in extracted_data:
+                                            additional_team_members = extracted_data["team_members"]
+                                            team_members_found = True
+                                            logger.info(f"Using legacy format from raw_output with {len(additional_team_members)} team members")
+                            except Exception as e:
+                                logger.error(f"Error accessing raw_output: {str(e)}")
+                        
+                        # Make sure all team members have name and backstory
+                        if team_members_found:
+                            for member in additional_team_members:
+                                if "name" not in member or not member["name"]:
+                                    member["name"] = f"Agent - {member['role']}"
+                                if "backstory" not in member or not member["backstory"]:
+                                    member["backstory"] = f"A skilled professional specializing in {member['role']}."
+                    except Exception as e:
+                        logger.error(f"Error processing CrewOutput object: {str(e)}")
+                        logger.error(traceback.format_exc())
+            
+            # If CrewAI didn't return any additional members, we'll proceed with just the VP
+            # We don't add hardcoded fallback members when network is available
+            if not additional_team_members:
+                logger.warning("CrewAI didn't return additional team members, but continuing with VP only")
+            
+            # Combine the VP with any additional team members from CrewAI
+            all_team_members = [vp_agent] + additional_team_members
+            
+            # Format the team data with teams
+            timestamp = int(time.time() * 1000)
+            
+            # Group team members by team
+            teams_by_name = {}
+            
+            # First add VP to their own leadership team
+            leadership_team = {
+                "team_name": "Leadership",
+                "focus": "Strategic direction and oversight",
+                "members": [vp_agent]
+            }
+            teams_by_name["Leadership"] = leadership_team
+            
+            # Process additional team members and organize by team
+            for member in additional_team_members:
+                team_name = member.get("team", "Core Team")
+                
+                if team_name not in teams_by_name:
+                    teams_by_name[team_name] = {
+                        "team_name": team_name,
+                        "focus": member.get("team_focus", "Project implementation"),
+                        "members": []
+                    }
+                
+                # Add member to their team
+                teams_by_name[team_name]["members"].append(member)
+            
+            # Convert dictionary to list of teams
+            all_teams = list(teams_by_name.values())
+            
+            # Format final output
+            team_data = {
+                "project": {
+                    "id": f"project-{timestamp}",
+                    "name": "Project",
+                    "description": description,
+                    "initialized": True,
+                    "team": {
+                        "id": f"team-{timestamp}",
+                        "structure": "hierarchical",
+                        "teams": all_teams
+                    }
+                }
+            }
+            
+            logger.info(f"Team created successfully with {len(all_team_members)} members")
+            return team_data
+            
+        except ImportError as e:
+            # If CrewAI is not available, fall back to direct API
+            logger.warning(f"CrewAI import error: {str(e)}. Falling back to direct API.")
+            return fallback_team_creation(description)
+            
+    except Exception as e:
+        logger.error(f"Error in create_team_implementation: {str(e)}")
+        logger.error(traceback.format_exc())
+        return fallback_team_creation(description)
+
+def fallback_team_creation(description):
+    """Create a fallback team when dynamic creation fails."""
+    logger.info("Creating fallback team")
+    
+    timestamp = int(time.time() * 1000)
+    
+    return {
+        "project": {
+            "id": f"project-fallback-{timestamp}",
+            "name": "Project",
+            "description": description,
+            "initialized": True,
+            "team": {
+                "id": f"team-fallback-{timestamp}",
+                "agents": [
+                    {
+                        "id": "agent-1",
+                        "name": "Tank - VP of Engineering",
+                        "role": "VP of Engineering",
+                        "backstory": f"As the VP of Engineering for {description}, Tank brings strategic vision and leadership to the project, coordinating all aspects of development.",
+                        "short_description": "Orchestrates the development process with strategic vision"
+                    },
+                    {
+                        "id": "agent-2",
+                        "name": "Sparks - Lead Developer",
+                        "role": "Lead Developer",
+                        "backstory": "A passionate developer with expertise in architecture and implementation. Sparks brings creative solutions to complex problems.",
+                        "short_description": "Implements core functionality with creative solutions"
+                    },
+                    {
+                        "id": "agent-3",
+                        "name": "Nova - UX Designer",
+                        "role": "UX Designer",
+                        "backstory": "A talented designer with a keen eye for usability and aesthetics. Nova ensures the project has an intuitive and beautiful interface.",
+                        "short_description": "Creates intuitive and beautiful user interfaces"
+                    }
+                ]
+            }
+        }
+    }
+
+# Register the team creation command using both methods for compatibility
+# First using the "feature" style registration (newer pygls)
+try:
+    @tribe_server.feature("tribe/createTeam")
+    async def create_team_feature(ls, params):
+        """Create a new team (feature registration)."""
+        logger.info("tribe/createTeam feature handler called")
+        
+        # Debug params to identify the exact format
+        logger.info(f"Params type: {type(params)}")
+        logger.info(f"Params dir: {dir(params)}")
+        logger.info(f"Params has __dict__: {hasattr(params, '__dict__')}")
+        logger.info(f"Params has get: {hasattr(params, 'get')}")
+        
+        # Try to print all public attributes
+        logger.info("Public attributes of params:")
+        for attr in dir(params):
+            if not attr.startswith('_') and not callable(getattr(params, attr)):
+                try:
+                    value = getattr(params, attr)
+                    logger.info(f"  {attr} = {value}")
+                except Exception as e:
+                    logger.info(f"  Error getting {attr}: {e}")
+        
+        if hasattr(params, '__dict__'):
+            logger.info(f"Params __dict__: {vars(params)}")
+        if hasattr(params, 'description'):
+            logger.info(f"Params direct description: {params.description}")
+            
+        # Forward to implementation
+        return await create_team_implementation(ls, params)
+    
+    logger.info("Registered tribe/createTeam as a feature")
+except Exception as e:
+    logger.error(f"Error registering feature tribe/createTeam: {e}")
+
+# Then using the "command" style registration (older pygls)
+try:
+    # Check if command is already registered before defining it
+    command_already_registered = False
+    
+    # Check in various possible locations
+    if hasattr(tribe_server, 'command_handlers') and 'tribe/createTeam' in tribe_server.command_handlers:
+        command_already_registered = True
+    elif hasattr(tribe_server, '_commands') and 'tribe/createTeam' in tribe_server._commands:
+        command_already_registered = True
+    
+    # Only register if not already registered
+    if not command_already_registered:
+        @tribe_server.command("tribe/createTeam")
+        async def create_team_command(ls, params):
+            """Create a new team (command registration)."""
+            logger.info("tribe/createTeam command handler called")
+            
+            # Debug params to identify the exact format
+            logger.info(f"Command Params type: {type(params)}")
+            logger.info(f"Command Params dir: {dir(params)}")
+            logger.info(f"Command Params has __dict__: {hasattr(params, '__dict__')}")
+            logger.info(f"Command Params has get: {hasattr(params, 'get')}")
+            if hasattr(params, '__dict__'):
+                logger.info(f"Command Params __dict__: {vars(params)}")
+            
+            # Forward to implementation
+            return await create_team_implementation(ls, params)
+        
+        logger.info("Registered tribe/createTeam as a command")
+    else:
+        logger.info("Skipping tribe/createTeam command registration as it's already registered")
+except Exception as e:
+    logger.error(f"Error registering command tribe/createTeam: {e}")
+
+# Register the requirements analysis command
+@tribe_server.command("tribe/analyzeRequirements")
+async def analyze_requirements(ls, params):
+    """Analyze requirements using the LLM."""
+    try:
+        # Handle both dictionary and Object-style params
+        logger.info(f"Params type for requirements: {type(params)}")
+        
+        # Get requirements - handle both dict and object params
+        requirements = ""
+        
+        # Try dict-style access
+        if hasattr(params, 'get'):
+            requirements = params.get('requirements', '')
+        # Try object attribute access
+        elif hasattr(params, 'requirements'):
+            requirements = params.requirements
+        # Try converting to dict
+        elif hasattr(params, '__dict__'):
+            params_dict = vars(params)
+            requirements = params_dict.get('requirements', '')
+        
+        if not requirements:
+            requirements = "No requirements provided"
+            
+        logger.info(f"Analyzing requirements: {requirements[:100]}...")
+        logger.debug(f"Full requirements: {requirements}")
+        
+        # Check if LLM is initialized
+        global llm
+        if llm is None:
+            logger.info("LLM not initialized yet, attempting to initialize...")
+            if not initialize_llm():
+                logger.error("Could not initialize LLM for requirements analysis")
+                return {"error": "Could not initialize LLM for requirements analysis"}
+        
+        # Use the LLM to analyze the requirements
+        system_message = """You are a requirements analysis expert. 
+        Analyze the provided requirements and provide structured feedback 
+        on completeness, feasibility, and potential implementation approach."""
+        
+        user_message = requirements
+        
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message}
+        ]
+        
+        logger.debug(f"Sending request to LLM with messages: {messages}")
+        
+        try:
+            response = llm.call(messages=messages)
+            logger.debug(f"Received response from LLM: {response[:100]}...")
+            return response
+        except Exception as e:
+            logger.error(f"Error calling LLM: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # Return an error response
+            return {"error": f"Error calling LLM: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Unhandled error analyzing requirements: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {"error": f"Unhandled error analyzing requirements: {str(e)}"}
+
+# Define CrewAI Tools for creating additional team members
+class ProjectRequirementsTool(BaseTool):
+    """Tool for analyzing project requirements."""
+    name: str = "ProjectRequirementsTool"
+    description: str = "Analyzes project requirements to determine the needed team structure."
+    
+    def _run(self, description: str) -> str:
+        """Analyze the project requirements and suggest team roles."""
+        logger.info(f"Analyzing requirements: {description}")
+        
+        try:
+            # This is just a template tool that forwards the description
+            return (
+                f"Based on the project description: '{description}', "
+                "I recommend building a cross-functional team with expertise in "
+                "software development, project management, and domain knowledge."
+            )
+        except Exception as e:
+            logger.error(f"Error in ProjectRequirementsTool: {str(e)}")
+            return f"Error analyzing requirements: {str(e)}"
+
+class TeamRoleGeneratorTool(BaseTool):
+    """Tool for generating appropriate team roles based on project needs."""
+    name: str = "TeamRoleGeneratorTool"
+    description: str = "Generates appropriate team roles organized into teams, each with a lead/manager."
+    
+    def _run(self, description: str) -> str:
+        """Generate appropriate team roles organized into teams."""
+        logger.info(f"Generating team roles for: {description}")
+        
+        try:
+            # Provide a structured team output that will be filled by the model
+            return json.dumps({
+                "teams": [
+                    {
+                        "team_name": "Core Development",
+                        "focus": "Building the central functionality of the project",
+                        "roles": [
+                            {
+                                "title": "Development Lead",
+                                "focus": "Technical leadership and architecture decisions",
+                                "is_lead": True
+                            },
+                            {
+                                "title": "Software Engineer",
+                                "focus": "Implementation and feature development",
+                                "is_lead": False
+                            }
+                        ]
+                    },
+                    {
+                        "team_name": "User Experience",
+                        "focus": "Ensuring the product is intuitive and accessible",
+                        "roles": [
+                            {
+                                "title": "UX Lead",
+                                "focus": "Overseeing user experience and design consistency",
+                                "is_lead": True
+                            },
+                            {
+                                "title": "UI Designer",
+                                "focus": "Visual design and interface implementation",
+                                "is_lead": False
+                            }
+                        ]
+                    }
+                ]
+            })
+        except Exception as e:
+            logger.error(f"Error in TeamRoleGeneratorTool: {str(e)}")
+            return f"Error generating team roles: {str(e)}"
+
+class TeamMemberCreatorTool(BaseTool):
+    """Tool for creating detailed team member profiles with character names."""
+    name: str = "TeamMemberCreatorTool"
+    description: str = "Creates detailed profiles for each team member based on their role with character-like names."
+    
+    def _run(self, role_data: str) -> str:
+        """Create detailed profiles for team members with character names."""
+        logger.info(f"Creating team member profiles for team roles: {role_data}")
+        
+        try:
+            # Extract team structure - whether it's a structured JSON or text description
+            teams = []
+            
+            # Use our JSONExtractor for more robust parsing
+            if isinstance(role_data, str):
+                # First try to extract as JSON with "teams" key
+                extracted_data, success = JSONExtractor.extract_json(role_data, expected_keys=["teams"])
+                if success and "teams" in extracted_data:
+                    teams = extracted_data["teams"]
+                    logger.info(f"Successfully extracted {len(teams)} teams using JSONExtractor")
+                else:
+                    # If that fails, try older format with just "roles" key
+                    extracted_data, success = JSONExtractor.extract_json(role_data, expected_keys=["roles"])
+                    if success and "roles" in extracted_data:
+                        roles = extracted_data["roles"]
+                        # Convert old format to new format with a single team
+                        teams = [{
+                            "team_name": "Development Team",
+                            "focus": "Building and implementing the project",
+                            "roles": roles
+                        }]
+                        logger.info(f"Converted old format to team structure with {len(roles)} roles")
+                    else:
+                        # Default team structure
+                        logger.info("Using default team structure as fallback")
+                        teams = [
+                            {
+                                "team_name": "Core Development",
+                                "focus": "Building the central functionality",
+                                "roles": [
+                                    {"title": "Engineering Lead", "focus": "Technical leadership", "is_lead": True},
+                                    {"title": "Software Engineer", "focus": "Implementation", "is_lead": False},
+                                ]
+                            },
+                            {
+                                "team_name": "Experience Design",
+                                "focus": "User interface and experience",
+                                "roles": [
+                                    {"title": "Design Lead", "focus": "UX strategy", "is_lead": True},
+                                    {"title": "UI Designer", "focus": "Interface design", "is_lead": False}
+                                ]
+                            }
+                        ]
+            elif isinstance(role_data, dict):
+                if "teams" in role_data:
+                    teams = role_data["teams"]
+                elif "roles" in role_data:
+                    # Convert old format to new format
+                    teams = [{
+                        "team_name": "Development Team",
+                        "focus": "Building and implementing the project",
+                        "roles": role_data["roles"]
+                    }]
+            
+            # If we don't have any teams at this point, use defaults
+            if not teams:
+                logger.info("No teams found, using default structure")
+                teams = [
+                    {
+                        "team_name": "Core Development",
+                        "focus": "Building the central functionality",
+                        "roles": [
+                            {"title": "Engineering Lead", "focus": "Technical leadership", "is_lead": True},
+                            {"title": "Software Engineer", "focus": "Implementation", "is_lead": False},
+                        ]
+                    },
+                    {
+                        "team_name": "Experience Design",
+                        "focus": "User interface and experience",
+                        "roles": [
+                            {"title": "Design Lead", "focus": "UX strategy", "is_lead": True},
+                            {"title": "UI Designer", "focus": "Interface design", "is_lead": False}
+                        ]
+                    }
+                ]
+            
+            # Process all teams and create profiles
+            structured_teams = []
+            agent_counter = 2  # Start from 2 since VP is agent-1
+            
+            for team_idx, team in enumerate(teams):
+                team_name = team.get("team_name", f"Team {team_idx+1}")
+                team_focus = team.get("focus", "Project implementation")
+                roles = team.get("roles", [])
+                
+                team_members = []
+                
+                for role in roles:
+                    # Extract role information
+                    if isinstance(role, dict):
+                        title = role.get("title", "Team Member")
+                        focus = role.get("focus", "Technical expertise")
+                        is_lead = role.get("is_lead", False)
+                    else:
+                        title = str(role)
+                        focus = "Technical expertise"
+                        is_lead = False
+                    
+                    # Create profile (without name or backstory - those will be added by the model)
+                    profile = {
+                        "id": f"agent-{agent_counter}",
+                        "role": title,
+                        "is_lead": is_lead,
+                        "short_description": f"Specializes in {focus}",
+                        # Personality traits to be filled by the model
+                        "communication_style": "",
+                        "working_approach": "",
+                        "personality_traits": [],
+                        "interaction_quirk": ""
+                    }
+                    team_members.append(profile)
+                    agent_counter += 1
+                
+                structured_team = {
+                    "team_name": team_name,
+                    "focus": team_focus,
+                    "members": team_members
+                }
+                structured_teams.append(structured_team)
+            
+            result = {"teams": structured_teams}
+            logger.info(f"Successfully created profiles for {len(structured_teams)} teams")
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error in TeamMemberCreatorTool: {str(e)}")
+            logger.error(traceback.format_exc())
+            # Return a valid JSON with error information and minimal structure
+            fallback_teams = [
+                {
+                    "team_name": "Development Team",
+                    "focus": "Core implementation",
+                    "members": [
+                        {
+                            "id": "agent-2",
+                            "role": "Engineering Lead",
+                            "is_lead": True,
+                            "short_description": "Specialist in architecture and development",
+                            "communication_style": "Clear and direct",
+                            "working_approach": "Methodical problem-solver",
+                            "personality_traits": ["Analytical", "Detail-oriented", "Patient"],
+                            "interaction_quirk": "Uses technical analogies to explain complex concepts"
+                        },
+                        {
+                            "id": "agent-3",
+                            "role": "Software Engineer",
+                            "is_lead": False,
+                            "short_description": "Expert in implementation",
+                            "communication_style": "Thoughtful and concise",
+                            "working_approach": "Iterative builder",
+                            "personality_traits": ["Creative", "Persistent", "Curious"],
+                            "interaction_quirk": "Always relates solutions to real-world examples"
+                        }
+                    ]
+                },
+                {
+                    "team_name": "Design Team",
+                    "focus": "User experience",
+                    "members": [
+                        {
+                            "id": "agent-4",
+                            "role": "UX Lead",
+                            "is_lead": True,
+                            "short_description": "Specialist in user experience",
+                            "communication_style": "Visual and empathetic",
+                            "working_approach": "User-centered design thinking",
+                            "personality_traits": ["Empathetic", "Observant", "Intuitive"],
+                            "interaction_quirk": "Sketches ideas while explaining them"
+                        }
+                    ]
+                }
+            ]
+            return json.dumps({"teams": fallback_teams}, ensure_ascii=False)
+
+class JSONExtractor:
+    """Utility for extracting JSON from model responses, even when the response isn't properly formatted."""
+    
+    @staticmethod
+    def extract_json(text, expected_keys=None, max_retries=2):
+        """
+        Extracts JSON from text, with robust handling of common formatting issues.
+        
+        Args:
+            text: The text to extract JSON from
+            expected_keys: A list of keys that should be in the JSON (used for validation)
+            max_retries: Maximum number of retries for re-extracting with different strategies
+            
+        Returns:
+            Tuple of (extracted_json_dict, success_flag)
+        """
+        if not text:
+            logger.error("Cannot extract JSON from empty text")
+            return None, False
+            
+        logger.info(f"Attempting to extract JSON from text of length {len(text)}")
+        
+        # Try direct parsing first
+        try:
+            json_data = json.loads(text)
+            if JSONExtractor._validate_json(json_data, expected_keys):
+                logger.info("Successfully parsed JSON directly")
+                return json_data, True
+        except json.JSONDecodeError:
+            logger.info("Direct JSON parsing failed, trying advanced extraction")
+        
+        # If we get here, we need to try more advanced extraction
+        for i in range(max_retries):
+            logger.info(f"JSON extraction attempt {i+1}/{max_retries}...")
+            
+            try:
+                # Strategy 1: Find JSON between curly braces
+                extracted = JSONExtractor._extract_between_braces(text)
+                if extracted:
+                    try:
+                        json_data = json.loads(extracted)
+                        if JSONExtractor._validate_json(json_data, expected_keys):
+                            logger.info("Successfully extracted JSON using brace matching")
+                            return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("Extracted text is not valid JSON")
+                
+                # Strategy 2: Find JSON between code blocks
+                extracted = JSONExtractor._extract_from_code_blocks(text)
+                if extracted:
+                    try:
+                        json_data = json.loads(extracted)
+                        if JSONExtractor._validate_json(json_data, expected_keys):
+                            logger.info("Successfully extracted JSON from code block")
+                            return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("Code block does not contain valid JSON")
+                
+                # Strategy 3: Fix common JSON issues and try again
+                fixed_text = JSONExtractor._fix_common_json_issues(text)
+                if fixed_text != text:  # Only if we made some changes
+                    try:
+                        json_data = json.loads(fixed_text)
+                        if JSONExtractor._validate_json(json_data, expected_keys):
+                            logger.info("Successfully parsed JSON after fixing common issues")
+                            return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("JSON parsing failed even after fixing common issues")
+                
+                # Strategy 4: Extract structured content using regex
+                extracted = JSONExtractor._extract_structured_content(text, expected_keys)
+                if extracted:
+                    logger.info("Successfully extracted structured content using regex")
+                    return extracted, True
+                    
+            except Exception as e:
+                logger.error(f"Error during JSON extraction attempt {i+1}: {str(e)}")
+        
+        # If we got here, all extraction attempts failed
+        logger.warning(f"Failed to extract valid JSON after {max_retries} attempts")
+        return None, False
+    
+    @staticmethod
+    def _validate_json(json_data, expected_keys=None):
+        """Validates that the JSON contains the expected keys."""
+        if not isinstance(json_data, dict):
+            logger.warning("Extracted JSON is not a dictionary")
+            return False
+            
+        if expected_keys:
+            missing_keys = [key for key in expected_keys if key not in json_data]
+            if missing_keys:
+                logger.warning(f"Extracted JSON is missing expected keys: {missing_keys}")
+                return False
+                
+        return True
+    
+    @staticmethod
+    def _extract_between_braces(text):
+        """Extract content between the outermost braces."""
+        start_idx = text.find('{')
+        if start_idx == -1:
+            return None
+            
+        # Find matching closing brace
+        brace_count = 0
+        for i in range(start_idx, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    return text[start_idx:i+1]
+        
+        return None
+    
+    @staticmethod
+    def _extract_from_code_blocks(text):
+        """Extract content from Markdown code blocks."""
+        import re
+        code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        matches = re.findall(code_block_pattern, text)
+        
+        for match in matches:
+            # Try to see if this code block contains valid JSON
+            try:
+                # Remove any leading/trailing whitespace
+                clean_match = match.strip()
+                json.loads(clean_match)
+                return clean_match
+            except json.JSONDecodeError:
+                continue
+                
+        return None
+    
+    @staticmethod
+    def _fix_common_json_issues(text):
+        """Fix common JSON formatting issues."""
+        import re
+        
+        # Try to find what looks like JSON content
+        json_like_pattern = r'(\{[\s\S]*\})'
+        match = re.search(json_like_pattern, text)
+        if not match:
+            return text
+            
+        potential_json = match.group(1)
+        
+        # Fix 1: Replace single quotes with double quotes
+        fixed = re.sub(r"'([^']*)':\s*", r'"\1": ', potential_json)
+        
+        # Fix 2: Add quotes around unquoted keys
+        fixed = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', fixed)
+        
+        # Fix 3: Convert True/False to true/false
+        fixed = fixed.replace('True', 'true').replace('False', 'false')
+        
+        # Fix 4: Remove trailing commas
+        fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+        
+        # Reconstruct the text with our fixed JSON
+        return re.sub(json_like_pattern, fixed, text, count=1)
+    
+    @staticmethod
+    def _extract_structured_content(text, expected_keys):
+        """
+        Extract structured content when JSON parsing fails completely.
+        This is a last-resort method to try to extract some structured data.
+        """
+        import re
+        
+        # For team members extraction specifically
+        if expected_keys and "team_members" in expected_keys:
+            # Try to build a team_members structure
+            result = {"team_members": []}
+            
+            # Look for patterns like "Name: Value" or "Role: Value"
+            name_pattern = r'(?:Name|Character):\s*([\w\s-]+)'
+            role_pattern = r'Role:\s*([\w\s]+)'
+            backstory_pattern = r'(?:Backstory|Background):\s*([^\n]+)'
+            
+            # Find all occurrences of these patterns
+            names = re.findall(name_pattern, text)
+            roles = re.findall(role_pattern, text)
+            backstories = re.findall(backstory_pattern, text)
+            
+            # If we found at least names and roles, we can construct a minimal team
+            if names and roles:
+                for i in range(min(len(names), len(roles))):
+                    member = {
+                        "id": f"agent-{i+2}",
+                        "name": names[i].strip(),
+                        "role": roles[i].strip()
+                    }
+                    
+                    # Add backstory if available
+                    if i < len(backstories):
+                        member["backstory"] = backstories[i].strip()
+                    else:
+                        member["backstory"] = f"A skilled {roles[i].strip()}."
+                    
+                    # Add short description 
+                    member["short_description"] = f"Specializes in {roles[i].strip()}"
+                    
+                    result["team_members"].append(member)
+                
+                if result["team_members"]:
+                    return result
+        
+        return None
+
+# Entry point for starting the server
+def start_server():
+    """Start the language server."""
+    try:
+        logger.info("=" * 80)
+        logger.info("Starting Tribe language server...")
+        logger.info("=" * 80)
+        
+        # Set up additional signal handlers for graceful shutdown
+        try:
+            import signal
+            
+            def handle_signal(sig, frame):
+                logger.info(f"Received signal {sig}, shutting down gracefully")
+                sys.exit(0)
+            
+            signal.signal(signal.SIGINT, handle_signal)
+            signal.signal(signal.SIGTERM, handle_signal)
+            logger.info("Signal handlers installed")
+        except Exception as e:
+            logger.warning(f"Could not set up signal handlers: {e}")
+        
+        # Fix the header issues by properly configuring the server
+        try:
+            # Directly modify the server's MessageReader class
+            from pygls.server import LanguageServer
+            from pygls.protocol import JsonRpcProtocol
+            
+            # First, ensure all server responses have Content-Length headers
+            # This works by adding a proper message formatter to the server
+            original_write = tribe_server._JsonRpcProtocol__write
+            
+            async def patched_write(self, message):
+                """Ensure all outgoing messages have proper headers."""
+                try:
+                    logger.debug(f"Sending message: {message}")
+                    
+                    # Ensure message is in the expected JSON-RPC format
+                    if not isinstance(message, dict):
+                        message = {"jsonrpc": "2.0", "result": message}
+                    
+                    # Add jsonrpc field if missing
+                    if "jsonrpc" not in message:
+                        message["jsonrpc"] = "2.0"
+                    
+                    # Call the original write method
+                    return await original_write(self, message)
+                except Exception as e:
+                    logger.error(f"Error in patched_write: {e}")
+                    logger.error(traceback.format_exc())
+                    # Return a minimal error response
+                    error_msg = {"jsonrpc": "2.0", "error": {"code": -32603, "message": f"Internal error: {str(e)}"}}
+                    try:
+                        await original_write(self, error_msg)
+                    except Exception:
+                        pass
+            
+            # Apply the write patch
+            if hasattr(tribe_server, "_JsonRpcProtocol__write"):
+                tribe_server._JsonRpcProtocol__write = patched_write
+                logger.info("Successfully patched server's __write method")
+            elif hasattr(tribe_server, "_protocol") and hasattr(tribe_server._protocol, "_JsonRpcProtocol__write"):
+                tribe_server._protocol._JsonRpcProtocol__write = patched_write
+                logger.info("Successfully patched protocol's __write method")
+            else:
+                logger.warning("Could not find __write method to patch")
+                
+            # Also patch the send_request and send_notification methods for extra safety
+            if hasattr(tribe_server, "send_request"):
+                original_send_request = tribe_server.send_request
+                
+                async def patched_send_request(method, params=None):
+                    try:
+                        logger.debug(f"Sending request: {method} with params {params}")
+                        return await original_send_request(method, params)
+                    except Exception as e:
+                        logger.error(f"Error in send_request: {e}")
+                        # Return a minimal response to avoid crashing
+                        return {"error": {"code": -32603, "message": f"Error sending request: {e}"}}
+                
+                tribe_server.send_request = patched_send_request
+                logger.info("Patched server's send_request method")
+            
+            if hasattr(tribe_server, "notify"):
+                original_notify = tribe_server.notify
+                
+                def patched_notify(method, params=None):
+                    try:
+                        logger.debug(f"Sending notification: {method} with params {params}")
+                        return original_notify(method, params)
+                    except Exception as e:
+                        logger.error(f"Error in notify: {e}")
+                        # Just log and continue, no need to return anything for notifications
+                        return None
+                
+                tribe_server.notify = patched_notify
+                logger.info("Patched server's notify method")
+                
+            logger.info("Server communication methods patched successfully")
+        except Exception as e:
+            logger.error(f"Error setting up server patches: {e}")
+            logger.error(traceback.format_exc())
+        
+        # One last attempt to patch the JSON-RPC protocol before starting
+        try:
+            # Direct access to message serialization 
+            from pygls.protocol import JsonRpcProtocol
+            
+            if not hasattr(JsonRpcProtocol, '_original_create_message'):
+                # Save original method
+                JsonRpcProtocol._original_create_message = JsonRpcProtocol._create_message
+                
+                # Create patched method
+                def patched_create_message(self, message):
+                    """Create JSON-RPC message with required headers."""
+                    try:
+                        logger.debug(f"Creating message: {message}")
+                        
+                        # Ensure message is a proper dict with jsonrpc field
+                        if isinstance(message, dict) and "jsonrpc" not in message:
+                            message["jsonrpc"] = "2.0"
+                        
+                        # Call original implementation
+                        result = self._original_create_message(message)
+                        
+                        # Verify Content-Length is in the result
+                        if not result.startswith(b'Content-Length:'):
+                            # Add Content-Length header if missing
+                            logger.warning("Adding missing Content-Length header")
+                            
+                            # Manual serialization with proper headers
+                            content = json.dumps(message).encode('utf-8')
+                            length = len(content)
+                            header = f'Content-Length: {length}\r\n\r\n'.encode('utf-8')
+                            result = header + content
+                            
+                        logger.debug(f"Created message with headers: {result[:100]}")
+                        return result
+                    except Exception as e:
+                        logger.error(f"Error in patched_create_message: {e}")
+                        
+                        # Create fallback error message with proper headers
+                        try:
+                            error_content = json.dumps({"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}}).encode('utf-8')
+                            error_length = len(error_content)
+                            error_header = f'Content-Length: {error_length}\r\n\r\n'.encode('utf-8')
+                            return error_header + error_content
+                        except:
+                            # Last resort
+                            fallback = b'Content-Length: 2\r\n\r\n{}'
+                            return fallback
+                
+                # Apply the patch
+                JsonRpcProtocol._create_message = patched_create_message
+                logger.info("Successfully patched JsonRpcProtocol._create_message")
+            else:
+                logger.info("JsonRpcProtocol._create_message already patched")
+        except Exception as e:
+            logger.error(f"Failed to patch message creation: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Start the server
+        logger.info("Calling tribe_server.start_io()")
+        tribe_server.start_io()
+    except Exception as e:
+        logger.critical(f"Critical error starting server: {e}")
+        logger.critical(traceback.format_exc())
+        # Re-raise to fail with a clear error message
+        raise
+
+if __name__ == "__main__":
+    try:
+        start_server()
+    except Exception as e:
+        print(f"Error starting server: {e}")
+        traceback.print_exc()
+        sys.exit(1)

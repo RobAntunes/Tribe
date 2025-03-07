@@ -45,6 +45,7 @@ export interface Agent {
     backstory?: string;
     description?: string;
     short_description?: string;
+    skills?: string[];
     autonomyState?: AutonomyState;
     performanceMetrics?: PerformanceMetrics;
     tools?:
@@ -64,7 +65,7 @@ export interface AgentContext {
     description?: string;
     backstory?: string;
     skills?: string[];
-    tools?: string[] | Array<{name: string; description: string;}>;
+    tools?: string[] | Array<{ name: string; description: string }>;
 }
 
 export interface Message {

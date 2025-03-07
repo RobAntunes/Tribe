@@ -496,9 +496,6 @@ export const CrewPanel: React.FC<CrewPanelProps> = ({ activeFlow, suggestedFlows
 				break;
 			case 'AGENT_MESSAGE_UPDATE':
 				handleAgentMessageUpdate(message.payload);
-				case 'MESSAGE_UPDATE':
-					handleAgentMessageUpdate(message.payload);
-					break;
 				break;
 			case 'AGENT_ERROR':
 				handleAgentError(message.payload);

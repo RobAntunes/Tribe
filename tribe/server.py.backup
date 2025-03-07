@@ -1,0 +1,898 @@
+# First few lines of the file should be properly formatted
+# Standard imports and initialization
+import os
+import sys
+import logging
+import asyncio
+import json
+from typing import Dict, Any, Optional, List, Union, Tuple
+from functools import partial
+
+# Import necessary modules
+from pygls.server import LanguageServer
+from pygls.lsp.types import (
+    InitializeParams,
+    InitializeResult,
+    ServerCapabilities,
+)
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("tribe.server")
+
+# Define any helper functions or setup code
+def setup_server():
+    try:
+        # Server setup code here
+        logger.info("Setting up the server")
+        return True
+    except Exception as e:
+        logger.error(f"Error setting up server: {str(e)}")
+        return False
+
+# Create the language server instance
+tribe_server = LanguageServer("tribe-language-server", "v0.1")
+
+@tribe_server.feature(INITIALIZED)
+async def initialized(params):
+    """Handle initialized notification."""
+    try:
+        logger.info("Tribe language server initialized!")
+        
+        # Log all registered command handlers
+        try:
+            # In newer pygls versions, commands are stored differently
+            # Try multiple attributes to find the commands
+            if hasattr(tribe_server, '_commands'):
+                commands = tribe_server._commands.keys()
+                logger.info(f"Registered commands: {list(commands)}")
+            elif hasattr(tribe_server, 'fm') and hasattr(tribe_server.fm, 'features'):
+                commands = tribe_server.fm.features.keys()
+                logger.info(f"Registered commands (fm.features): {list(commands)}")
+            else:
+                logger.info("Could not find commands registry attribute")
+        except Exception as e:
+            logger.error(f"Error listing commands: {str(e)}")
+        
+        # Now that we're initialized, we can show the message
+        try:
+            # This is optional, so wrap in try/except
+            tribe_server.show_message("Tribe language server initialized!", MessageType.Info)
+        except Exception as e:
+            logger.error(f"Error showing message (non-critical): {str(e)}")
+            
+        # Add additional verification
+        logger.info("Server is now fully initialized and ready to process commands")
+        
+    except Exception as e:
+        logger.error(f"Error in initialized: {str(e)}")
+        logger.error(traceback.format_exc())
+
+@tribe_server.feature(SHUTDOWN)
+async def shutdown(params):
+    """Handle shutdown request."""
+    try:
+        logger.info("Shutting down Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in shutdown: {str(e)}")
+        logger.error(traceback.format_exc())
+
+@tribe_server.feature(EXIT)
+async def exit(params):
+    """Handle exit notification."""
+    try:
+        logger.info("Exiting Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in exit: {str(e)}")
+        logger.error(traceback.format_exc())
+
+# Custom command handlers with enhanced error handling
+
+# Define the team creation implementation first
+async def create_team_implementation(ls, params):
+    logger.info(f"Handling tribe.createTeam with params: {params}")
+    
+    try:
+        # Extract the description from params
+        description = params.get("description", "an AI development team")
+        temperature = params.get("temperature", 0.7)
+        
+        # Create the team member creator tool with a longer timeout
+        team_creator = TeamMemberCreatorTool()
+        
+        # Set a longer timeout for the model request (e.g., 60 seconds)
+        team_creator.timeout = 60
+        
+        # Execute the tool with the description
+        logger.info(f"Generating team with description: {description}")
+        team_data = team_creator.run(description, temperature=temperature)
+        
+        # Log the generated team data for debugging
+        logger.info(f"Model generated team data: {team_data}")
+        
+        if not team_data or "teams" not in team_data:
+            logger.error("Failed to generate team data or invalid format")
+            return {"error": "Failed to generate team data"}
+            
+        return team_data
+        
+    except Exception as e:
+        logger.error(f"Error creating team: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": str(e)}
+
+class JSONExtractor:
+    """Utility for extracting JSON from model responses, even when the response isn't properly formatted."""
+    
+    @staticmethod
+    def extract_json(text, expected_keys=None, max_retries=2):
+        """
+        Extracts JSON from text, with robust handling of common formatting issues.
+        
+        Args:
+            text: The text to extract JSON from
+            expected_keys: A list of keys that should be in the JSON (used for validation)
+            max_retries: Maximum number of retries for re-extracting with different strategies
+            
+        Returns:
+            Tuple of (extracted_json_dict, success_flag)
+        """
+        if not text:
+            logger.error("Cannot extract JSON from empty text")
+            return None, False
+            
+        logger.info(f"Attempting to extract JSON from text of length {len(text)}")
+        
+        # Try direct parsing first
+        try:
+            json_data = json.loads(text)
+            # If we successfully parsed JSON, validate it against expected keys
+            if JSONExtractor._validate_json(json_data, expected_keys):
+                logger.info("Successfully parsed JSON directly")
+                return json_data, True
+            else:
+                # Even if validation fails, if we have a parseable JSON, return it
+                # This prevents retries when we have valid JSON that just doesn't match our schema
+                logger.info("JSON parsed successfully but didn't match expected schema - returning anyway")
+                return json_data, True
+        except json.JSONDecodeError:
+            # Only proceed to advanced extraction if we couldn't parse JSON at all
+            logger.info("Direct JSON parsing failed, trying advanced extraction")
+        
+        # If we get here, we need to try more advanced extraction
+        for i in range(max_retries):
+            logger.info(f"JSON extraction attempt {i+1}/{max_retries}...")
+            
+            try:
+                # Strategy 1: Find JSON between curly braces
+                extracted = JSONExtractor._extract_between_braces(text)
+                if extracted:
+                    try:
+                        json_data = json.loads(extracted)
+                        # Return valid JSON even if it doesn't match our schema
+                        logger.info("Successfully extracted JSON using brace matching")
+                        return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("Extracted text is not valid JSON")
+                
+                # Strategy 2: Find JSON between code blocks
+                extracted = JSONExtractor._extract_from_code_blocks(text)
+                if extracted:
+                    try:
+                        json_data = json.loads(extracted)
+                        # Return valid JSON even if it doesn't match our schema
+                        logger.info("Successfully extracted JSON from code block")
+                        return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("Code block does not contain valid JSON")
+                
+                # Strategy 3: Fix common JSON issues and try again
+                fixed_text = JSONExtractor._fix_common_json_issues(text)
+                if fixed_text != text:  # Only if we made some changes
+                    try:
+                        json_data = json.loads(fixed_text)
+                        # Return valid JSON even if it doesn't match our schema
+                        logger.info("Successfully parsed JSON after fixing common issues")
+                        return json_data, True
+                    except json.JSONDecodeError:
+                        logger.info("JSON parsing failed even after fixing common issues")
+                
+                # Strategy 4: Extract structured content using regex
+                extracted = JSONExtractor._extract_structured_content(text, expected_keys)
+                if extracted:
+                    logger.info("Successfully extracted structured content using regex")
+                    return extracted, True
+                    
+            except Exception as e:
+                logger.error(f"Error during JSON extraction attempt {i+1}: {str(e)}")
+        
+        # If we've tried everything and failed, return failure
+        logger.warning(f"Failed to extract valid JSON after {max_retries} attempts")
+        return None, False
+    
+    @staticmethod
+    def _validate_json(json_data, expected_keys=None):
+        """Validates that the JSON contains the expected keys."""
+        if not isinstance(json_data, dict):
+            logger.warning("Extracted JSON is not a dictionary")
+            return False
+            
+        if expected_keys:
+            missing_keys = [key for key in expected_keys if key not in json_data]
+            if missing_keys:
+                logger.warning(f"Extracted JSON is missing expected keys: {missing_keys}")
+                return False
+                
+        return True
+    
+    @staticmethod
+    def _extract_between_braces(text):
+        """Extract content between the outermost braces."""
+        start_idx = text.find('{')
+        if start_idx == -1:
+            return None
+            
+        # Find matching closing brace
+        brace_count = 0
+        for i in range(start_idx, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    return text[start_idx:i+1]
+        
+        return None
+    
+    @staticmethod
+    def _extract_from_code_blocks(text):
+        """Extract content from Markdown code blocks."""
+        import re
+        code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        matches = re.findall(code_block_pattern, text)
+        
+        for match in matches:
+            # Try to see if this code block contains valid JSON
+            try:
+                # Remove any leading/trailing whitespace
+                clean_match = match.strip()
+                json.loads(clean_match)
+                return clean_match
+            except json.JSONDecodeError:
+                continue
+                
+        return None
+    
+    @staticmethod
+    def _fix_common_json_issues(text):
+        """Fix common JSON formatting issues."""
+        import re
+        
+        # Try to find what looks like JSON content
+        json_like_pattern = r'(\{[\s\S]*\})'
+        match = re.search(json_like_pattern, text)
+        if not match:
+            return text
+            
+        potential_json = match.group(1)
+        
+        # Fix 1: Replace single quotes with double quotes
+        fixed = re.sub(r"'([^']*)':\s*", r'"\1": ', potential_json)
+        
+        # Fix 2: Add quotes around unquoted keys
+        fixed = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', fixed)
+        
+        # Fix 3: Convert True/False to true/false
+        fixed = fixed.replace('True', 'true').replace('False', 'false')
+        
+        # Fix 4: Remove trailing commas
+        fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+        
+        # Reconstruct the text with our fixed JSON
+        return re.sub(json_like_pattern, fixed, text, count=1)
+    
+    @staticmethod
+    def _extract_structured_content(text, expected_keys):
+        """
+        Extract structured content when JSON parsing fails completely.
+        This is a last-resort method to try to extract some structured data.
+        """
+        import re
+        
+        # For team members extraction specifically
+        if expected_keys and "team_members" in expected_keys:
+            # Try to build a team_members structure
+            result = {"team_members": []}
+            
+            # Look for patterns like "Name: Value" or "Role: Value"
+            name_pattern = r'(?:Name|Character):\s*([\w\s-]+)'
+            role_pattern = r'Role:\s*([\w\s]+)'
+            backstory_pattern = r'(?:Backstory|Background):\s*([^\n]+)'
+            
+            # Find all occurrences of these patterns
+            names = re.findall(name_pattern, text)
+            roles = re.findall(role_pattern, text)
+            backstories = re.findall(backstory_pattern, text)
+            
+            # If we found at least names and roles, we can construct a minimal team
+            if names and roles:
+                for i in range(min(len(names), len(roles))):
+                    member = {
+                        "id": f"agent-{i+2}",
+                        "name": names[i].strip(),
+                        "role": roles[i].strip()
+                    }
+                    
+                    # Add backstory if available
+                    if i < len(backstories):
+                        member["backstory"] = backstories[i].strip()
+                    else:
+                        member["backstory"] = f"A skilled {roles[i].strip()}."
+                    
+                    # Add short description 
+                    member["short_description"] = f"Specializes in {roles[i].strip()}"
+                    
+                    result["team_members"].append(member)
+                
+                if result["team_members"]:
+                    return result
+        
+        return None
+
+"""Tribe Language Server implementation."""
+
+import os
+import sys
+import json
+import time
+import logging
+import asyncio
+import traceback
+import signal
+import threading
+from typing import Dict, Any, Optional, List, Tuple, Union, Type
+from pathlib import Path
+from pygls.server import LanguageServer
+from lsprotocol.types import (
+    TEXT_DOCUMENT_DID_OPEN,
+    TEXT_DOCUMENT_DID_CLOSE,
+    TEXT_DOCUMENT_DID_CHANGE,
+    INITIALIZE,
+    INITIALIZED,
+    SHUTDOWN,
+    EXIT,
+    InitializeParams,
+    InitializeResult,
+    MessageType,
+    ServerCapabilities,
+    TextDocumentSyncKind,
+)
+from crewai import LLM
+from crewai.tools import BaseTool
+from pydantic import BaseModel, Field
+
+# Configure logging to a file in the home directory to ensure we can write to it
+log_file = os.path.expanduser("~/tribe-server.log")
+logging.basicConfig(
+    level=logging.DEBUG,  # More verbose logging
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file if not already set
+try:
+    # Look for .env file in current directory and parent directories
+    env_file_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+        os.path.join(os.getcwd(), ".env")
+    ]
+    
+    for env_path in env_file_paths:
+        if os.path.isfile(env_path):
+            logger.info(f"Loading environment variables from {env_path}")
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        key, value = line.split('=', 1)
+                        # Only set if not already in environment
+                        if key not in os.environ or not os.environ[key]:
+                            os.environ[key] = value
+                            if 'KEY' in key or 'SECRET' in key or 'TOKEN' in key:
+                                logger.info(f"Set {key} from {env_path}")
+                            else:
+                                logger.info(f"Set {key}={value} from {env_path}")
+            # Break after loading the first .env file found
+            break
+except Exception as e:
+    logger.error(f"Error loading .env file: {e}")
+    logger.error(traceback.format_exc())
+
+# Log startup information
+logger.debug("=" * 80)
+logger.debug("TRIBE SERVER STARTING")
+logger.debug("=" * 80)
+
+# Log environment for debugging
+logger.debug(f"Python version: {sys.version}")
+logger.debug(f"Current directory: {os.getcwd()}")
+logger.debug(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}")
+logger.debug(f"TRIBE_MODEL: {os.environ.get('TRIBE_MODEL', 'Not set')}")
+logger.debug(f"TRIBE_DEBUG: {os.environ.get('TRIBE_DEBUG', 'Not set')}")
+
+# Log all environment variables in debug mode
+if os.environ.get('TRIBE_DEBUG') == 'true':
+    logger.debug("Environment variables:")
+    for key, value in sorted(os.environ.items()):
+        # Don't log actual API keys, just their existence
+        if 'KEY' in key or 'SECRET' in key or 'TOKEN' in key or 'PASSWORD' in key:
+            logger.debug(f"  {key}: [REDACTED]")
+        else:
+            logger.debug(f"  {key}: {value}")
+
+# Log Python path and modules
+try:
+    import sys
+    logger.debug(f"sys.path: {sys.path}")
+    
+    # Log installed packages
+    import pkg_resources
+    installed_packages = [f"{d.project_name}=={d.version}" for d in pkg_resources.working_set]
+    logger.debug(f"Installed packages: {installed_packages}")
+except Exception as e:
+    logger.error(f"Error logging packages: {e}")
+
+# Add improved connection state handling
+class SafeWriter:
+    """Wrapper to safely handle write operations that check connection state."""
+    
+    def __init__(self, writer):
+        self.writer = writer
+        self._closed = False
+        
+    def write(self, data):
+        """Safely write data checking if connection is still valid."""
+        if self._closed:
+            logger.warning("Attempted to write to closed connection")
+            return False
+        
+        try:
+            result = self.writer.write(data)
+            return result
+        except Exception as e:
+            logger.error(f"Error in safe write: {e}")
+            # Mark as closed on any error to prevent further writes
+            self._closed = True
+            return False
+            
+    def close(self):
+        """Mark connection as closed."""
+        self._closed = True
+        try:
+            if hasattr(self.writer, 'close'):
+                self.writer.close()
+        except Exception as e:
+            logger.error(f"Error closing writer: {e}")
+            
+    @property
+    def closed(self):
+        """Check if connection is closed."""
+        if hasattr(self.writer, 'closed'):
+            return self._closed or self.writer.closed
+        return self._closed
+
+# Try to create the server instance with exception handling
+try:
+    logger.debug("Creating LanguageServer instance...")
+    tribe_server = LanguageServer("tribe-ls", "v1.0.0")
+    logger.debug("LanguageServer instance created successfully")
+    
+    # Register server capabilities early in initialization
+    # This registers standard capabilities like text document sync
+    server_capabilities = {
+        "textDocumentSync": {
+            "openClose": True,
+            "change": TextDocumentSyncKind.Full,
+            "willSave": False,
+            "willSaveWaitUntil": False,
+            "save": {"includeText": False}
+        },
+        # Register the custom commands explicitly
+        "executeCommandProvider": {
+            "commands": ["tribe.createTeam", "tribe.analyzeRequirements"]
+        }
+    }
+    logger.debug(f"Setting server capabilities: {server_capabilities}")
+    
+    # Patch protocol writer with SafeWriter if possible
+    if hasattr(tribe_server, '_protocol') and tribe_server._protocol is not None:
+        if hasattr(tribe_server._protocol, '_writer') and tribe_server._protocol._writer is not None:
+            original_writer = tribe_server._protocol._writer
+            tribe_server._protocol._writer = SafeWriter(original_writer)
+            logger.info("Successfully wrapped protocol writer with SafeWriter")
+            
+    # If protocol isn't available yet, wait until it's initialized
+    # Commenting out this duplicate registration of the INITIALIZED feature
+    # @tribe_server.feature(INITIALIZED)
+    async def wrap_protocol_writer(ls, *args, **kwargs):
+        """Wrap the protocol writer after initialization."""
+        try:
+            if hasattr(ls, '_protocol') and ls._protocol is not None:
+                if hasattr(ls._protocol, '_writer') and ls._protocol._writer is not None:
+                    # Check if it's already wrapped
+                    if not isinstance(ls._protocol._writer, SafeWriter):
+                        original_writer = ls._protocol._writer
+                        ls._protocol._writer = SafeWriter(original_writer)
+                        logger.info("Successfully wrapped protocol writer with SafeWriter after initialization")
+        except Exception as e:
+            logger.error(f"Error wrapping protocol writer: {e}")
+except Exception as e:
+    logger.error(f"Error creating LanguageServer: {str(e)}")
+    logger.error(traceback.format_exc())
+    # Re-raise to fail fast if we can't create the server
+    raise
+
+# Global LLM variable
+llm = None
+
+# Initialize the LLM
+def initialize_llm():
+    """Initialize the LLM using the Anthropic API."""
+    try:
+        logger.info("Initializing LLM...")
+        
+        # Import at function level to avoid circular imports
+        import os
+        from crewai import LLM
+        
+        model_name = os.environ.get("TRIBE_MODEL", "claude-3-sonnet-20240229")
+        logger.info(f"Initializing LLM with model: {model_name}")
+        
+        # Check and log if the API key is available
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if api_key:
+            logger.info(f"ANTHROPIC_API_KEY found in environment: {api_key[:5]}...{api_key[-4:]}")
+        else:
+            logger.warning("ANTHROPIC_API_KEY not found in environment")
+            
+        try:
+            # Try to create the real LLM
+            llm = LLM(model=model_name, temperature=0.7)
+            logger.info("LLM initialized successfully with model: %s", model_name)
+            return True
+        except Exception as e:
+            # If the real LLM fails to initialize, log the error and create a mock
+            logger.error(f"Error initializing real LLM: {str(e)}")
+            
+            # If we get here and we have no LLM yet, create a mock one
+            if llm is None:
+                logger.warning("Creating fallback mock LLM due to initialization error")
+                class MockLLM:
+                    def __init__(self, model, temperature):
+                        self.model = model
+                        self.temperature = temperature
+                        logger.debug(f"Fallback MockLLM created with model={model}, temp={temperature}")
+                    
+                    def call(self, messages=None, **kwargs):
+                        logger.debug(f"Fallback MockLLM.call called with messages={messages}")
+                        return f"Fallback mock response - LLM initialization failed"
+                
+                llm = MockLLM(model=model_name, temperature=0.7)
+            
+            return False
+    except Exception as e:
+        logger.error(f"Error initializing LLM: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Continue without crashing as the LLM might be initialized later
+        return False
+
+# Try to initialize the LLM on module load but don't crash if it fails
+try:
+    initialize_llm()
+except Exception as e:
+    logger.error(f"Unexpected error during LLM initialization: {str(e)}")
+    logger.error(traceback.format_exc())
+
+# Add error handlers to all LSP operations
+@tribe_server.feature(INITIALIZE)
+async def initialize(params: InitializeParams) -> InitializeResult:
+    """Initialize the language server."""
+    try:
+        logger.info("Initializing Tribe language server...")
+        logger.debug(f"Initialize params: {params}")
+        
+        # Configure server capabilities with our custom command
+        capabilities = ServerCapabilities(
+            text_document_sync=TextDocumentSyncKind.Full,
+            execute_command_provider={
+                "commands": ["tribe.createTeam", "tribe.analyzeRequirements"]
+            }
+        )
+        
+        # Log the capabilities we're sending
+        logger.info(f"Sending capabilities: {capabilities}")
+        
+        # Pre-register our command handlers for compatibility
+        # This works around potential issues with different pygls versions
+        if hasattr(tribe_server, "command_handlers"):
+            # Check if command is already registered
+            if "tribe.createTeam" not in tribe_server.command_handlers:
+                tribe_server.command_handlers["tribe.createTeam"] = create_team_implementation
+                logger.info("Directly registered tribe.createTeam in command_handlers")
+            else:
+                logger.info("tribe.createTeam already registered in command_handlers, skipping")
+        
+        # Also register in _commands if that attribute exists
+        if hasattr(tribe_server, "_commands"):
+            if "tribe.createTeam" not in tribe_server._commands:
+                tribe_server._commands["tribe.createTeam"] = create_team_implementation
+                logger.info("Directly registered tribe.createTeam in _commands")
+            else:
+                logger.info("tribe.createTeam already registered in _commands, skipping")
+        
+        # Create a properly formatted response to ensure Content-Length is added
+        result = {
+            "jsonrpc": "2.0",
+            "result": {
+                "capabilities": capabilities
+            }
+        }
+        
+        logger.info("Returning initialize result with explicit content")
+        return InitializeResult(capabilities=capabilities)
+    except Exception as e:
+        logger.error(f"Error in initialize: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Still need to return a result to avoid protocol errors
+        return InitializeResult(capabilities=ServerCapabilities())
+
+@tribe_server.feature(SHUTDOWN)
+async def shutdown(params):
+    """Handle shutdown request."""
+    try:
+        logger.info("Shutting down Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in shutdown: {str(e)}")
+        logger.error(traceback.format_exc())
+
+@tribe_server.feature(EXIT)
+async def exit(params):
+    """Handle exit notification."""
+    try:
+        logger.info("Exiting Tribe language server...")
+    except Exception as e:
+        logger.error(f"Error in exit: {str(e)}")
+        logger.error(traceback.format_exc())
+
+# Custom command handlers with enhanced error handling
+
+# Define the team creation implementation first
+async def create_team_implementation(ls, params):
+    logger.info(f"Handling tribe.createTeam with params: {params}")
+    
+    try:
+        # Extract the description from params
+        description = params.get("description", "an AI development team")
+        temperature = params.get("temperature", 0.7)
+        
+        # Create the team member creator tool with a longer timeout
+        team_creator = TeamMemberCreatorTool()
+        
+        # Set a longer timeout for the model request (e.g., 60 seconds)
+        team_creator.timeout = 60
+        
+        # Execute the tool with the description
+        logger.info(f"Generating team with description: {description}")
+        team_data = team_creator.run(description, temperature=temperature)
+        
+        # Log the generated team data for debugging
+        logger.info(f"Model generated team data: {team_data}")
+        
+        if not team_data or "teams" not in team_data:
+            logger.error("Failed to generate team data or invalid format")
+            return {"error": "Failed to generate team data"}
+            
+        return team_data
+        
+    except Exception as e:
+        logger.error(f"Error creating team: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {"error": str(e)}
+
+# Make sure we're registering the correct command and handler
+
+# Define the handler function
+def create_team_command(ls, params):
+    return create_team_implementation(ls, params)
+
+# Register it in the appropriate places
+if hasattr(tribe_server, "command_handlers"):
+    tribe_server.command_handlers["tribe.createTeam"] = create_team_command
+    logger.info("Registered tribe.createTeam in command_handlers")
+
+# Don't use the @tribe_server.command decorator as it's already registered client-side
+
+def start_server():
+    """Start the language server."""
+    try:
+        logger.info("=" * 80)
+        logger.info("Starting Tribe language server...")
+        logger.info("=" * 80)
+        
+        # Set up additional signal handlers for graceful shutdown
+        try:
+            import signal
+            
+            def handle_signal(sig, frame):
+                logger.info(f"Received signal {sig}, shutting down gracefully")
+                sys.exit(0)
+            
+            signal.signal(signal.SIGINT, handle_signal)
+            signal.signal(signal.SIGTERM, handle_signal)
+            logger.info("Signal handlers installed")
+        except Exception as e:
+            logger.warning(f"Could not set up signal handlers: {e}")
+        
+        # Fix the header issues by properly configuring the server
+        try:
+            # Directly modify the server's MessageReader class
+            from pygls.server import LanguageServer
+            from pygls.protocol import JsonRpcProtocol
+            
+            # First, ensure all server responses have Content-Length headers
+            # This works by adding a proper message formatter to the server
+            original_write = tribe_server._JsonRpcProtocol__write
+            
+            async def patched_write(self, message):
+                """Ensure all outgoing messages have proper headers."""
+                try:
+                    logger.debug(f"Sending message: {message}")
+                    
+                    # Ensure message is in the expected JSON-RPC format
+                    if not isinstance(message, dict):
+                        message = {"jsonrpc": "2.0", "result": message}
+                    
+                    # Add jsonrpc field if missing
+                    if "jsonrpc" not in message:
+                        message["jsonrpc"] = "2.0"
+                    
+                    # Call the original write method
+                    return await original_write(self, message)
+                except Exception as e:
+                    logger.error(f"Error in patched_write: {e}")
+                    logger.error(traceback.format_exc())
+                    # Return a minimal error response
+                    error_msg = {"jsonrpc": "2.0", "error": {"code": -32603, "message": f"Internal error: {str(e)}"}}
+                    try:
+                        await original_write(self, error_msg)
+                    except Exception:
+                        pass
+            
+            # Apply the write patch
+            if hasattr(tribe_server, "_JsonRpcProtocol__write"):
+                tribe_server._JsonRpcProtocol__write = patched_write
+                logger.info("Successfully patched server's __write method")
+            elif hasattr(tribe_server, "_protocol") and hasattr(tribe_server._protocol, "_JsonRpcProtocol__write"):
+                tribe_server._protocol._JsonRpcProtocol__write = patched_write
+                logger.info("Successfully patched protocol's __write method")
+            else:
+                logger.warning("Could not find __write method to patch")
+                
+            # Also patch the send_request and send_notification methods for extra safety
+            if hasattr(tribe_server, "send_request"):
+                original_send_request = tribe_server.send_request
+                
+                async def patched_send_request(method, params=None):
+                    try:
+                        logger.debug(f"Sending request: {method} with params {params}")
+                        return await original_send_request(method, params)
+                    except Exception as e:
+                        logger.error(f"Error in send_request: {e}")
+                        # Return a minimal response to avoid crashing
+                        return {"error": {"code": -32603, "message": f"Error sending request: {e}"}}
+                
+                tribe_server.send_request = patched_send_request
+                logger.info("Patched server's send_request method")
+            
+            if hasattr(tribe_server, "notify"):
+                original_notify = tribe_server.notify
+                
+                def patched_notify(method, params=None):
+                    try:
+                        logger.debug(f"Sending notification: {method} with params {params}")
+                        return original_notify(method, params)
+                    except Exception as e:
+                        logger.error(f"Error in notify: {e}")
+                        # Just log and continue, no need to return anything for notifications
+                        return None
+                
+                tribe_server.notify = patched_notify
+                logger.info("Patched server's notify method")
+                
+            logger.info("Server communication methods patched successfully")
+        except Exception as e:
+            logger.error(f"Error setting up server patches: {e}")
+            logger.error(traceback.format_exc())
+        
+        # One last attempt to patch the JSON-RPC protocol before starting
+        try:
+            # Direct access to message serialization 
+            from pygls.protocol import JsonRpcProtocol
+            
+            if not hasattr(JsonRpcProtocol, '_original_create_message'):
+                # Save original method
+                JsonRpcProtocol._original_create_message = JsonRpcProtocol._create_message
+                
+                # Create patched method
+                def patched_create_message(self, message):
+                    """Create JSON-RPC message with required headers."""
+                    try:
+                        logger.debug(f"Creating message: {message}")
+                        
+                        # Ensure message is a proper dict with jsonrpc field
+                        if isinstance(message, dict) and "jsonrpc" not in message:
+                            message["jsonrpc"] = "2.0"
+                        
+                        # Call original implementation
+                        result = self._original_create_message(message)
+                        
+                        # Verify Content-Length is in the result
+                        if not result.startswith(b'Content-Length:'):
+                            # Add Content-Length header if missing
+                            logger.warning("Adding missing Content-Length header")
+                            
+                            # Manual serialization with proper headers
+                            content = json.dumps(message).encode('utf-8')
+                            length = len(content)
+                            header = f'Content-Length: {length}\r\n\r\n'.encode('utf-8')
+                            result = header + content
+                            
+                        logger.debug(f"Created message with headers: {result[:100]}")
+                        return result
+                    except Exception as e:
+                        logger.error(f"Error in patched_create_message: {e}")
+                        
+                        # Create fallback error message with proper headers
+                        try:
+                            error_content = json.dumps({"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}}).encode('utf-8')
+                            error_length = len(error_content)
+                            error_header = f'Content-Length: {error_length}\r\n\r\n'.encode('utf-8')
+                            return error_header + error_content
+                        except:
+                            # Last resort
+                            fallback = b'Content-Length: 2\r\n\r\n{}'
+                            return fallback
+                
+                # Apply the patch
+                JsonRpcProtocol._create_message = patched_create_message
+                logger.info("Successfully patched JsonRpcProtocol._create_message")
+            else:
+                logger.info("JsonRpcProtocol._create_message already patched")
+        except Exception as e:
+            logger.error(f"Failed to patch message creation: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Start the server
+        logger.info("Calling tribe_server.start_io()")
+        tribe_server.start_io()
+    except Exception as e:
+        logger.critical(f"Critical error starting server: {e}")
+        logger.critical(traceback.format_exc())
+        # Re-raise to fail with a clear error message
+        raise
+
+if __name__ == "__main__":
+    try:
+        start_server()
+    except Exception as e:
+        print(f"Error starting server: {e}")
+        traceback.print_exc()
+        sys.exit(1)

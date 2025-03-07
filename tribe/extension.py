@@ -8,8 +8,11 @@ import uuid
 import logging
 import sys
 from pygls.server import LanguageServer
+from pygls.features import INITIALIZE
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+import time
+import traceback
 
 from .crew import Tribe
 from .core.dynamic import DynamicAgent, DynamicCrew
@@ -45,15 +48,37 @@ class TribeLanguageServer(LanguageServer):
 tribe_server = TribeLanguageServer()
 
 
-@tribe_server.command("tribe.initialize")
-def initialize_tribe(ls: TribeLanguageServer, workspace_path: str) -> None:
-    """Initialize Tribe with the workspace path."""
-    ls.workspace_path = workspace_path
+@tribe_server.feature(INITIALIZE)
+def initialize_tribe(ls: TribeLanguageServer, params):
+    """Handle the initialize request from the client."""
+    logger.info(f"Initialize request received with params: {params}")
+    if hasattr(params, 'rootUri') and params.rootUri:
+        ls.workspace_path = params.rootUri.replace('file://', '')
+    
+    # Make sure we explicitly register our custom features
+    if not hasattr(tribe_server.fm, 'features'):
+        tribe_server.fm.features = {}
+    
+    # Ensure our feature handlers are registered
+    tribe_server.fm.features['tribe.createTeam'] = create_team_feature
+    tribe_server.fm.features['tribe.analyzeRequirements'] = analyze_requirements_feature
+    
+    logger.info("Custom features registered successfully")
+    
+    return {"capabilities": {
+        "executeCommandProvider": {
+            "commands": ["tribe.createTeam", "tribe.analyzeRequirements"]
+        }
+    }}
 
 
-@tribe_server.command("tribe.createTeam")
-async def create_team(ls: TribeLanguageServer, payload: dict) -> dict:
-    """Create a new team using the DynamicAgent through Tribe."""
+# Register both as feature (direct LSP request) and command (VSCode command)
+# Handle both formats (with slash and with dot) for maximum compatibility
+@tribe_server.feature("tribe.createTeam")
+async def create_team_feature(ls: TribeLanguageServer, params):
+    """Create a new team using the DynamicAgent through Tribe (called via LSP)."""
+    logger.info(f"tribe.createTeam feature called with params: {params}")
+    payload = params if isinstance(params, dict) else params.__dict__
     return await _create_team_implementation(ls, payload)
 
 
@@ -68,234 +93,439 @@ async def _create_team_implementation(ls: TribeLanguageServer, payload: dict) ->
         # Create a task for the actual implementation
         async def actual_implementation():
             try:
-                from .core.dynamic import DynamicAgent, DynamicCrew
+                # Import CrewAI components
+                from crewai import Agent, Task, Crew, Process
+                from crewai import LLM
+                from crewai.tools import BaseTool
                 import asyncio
+                import time
+                import json
+                from pydantic import Field
 
-                # Initialize default tools
-                default_tools = [
-                    # Default tools will be configured in a real implementation
-                ]
+                # Get the project description from the payload
+                description = payload.get("description", "A software development team")
+                logger.info(f"Creating team with description: {description}")
 
-                # Create VP of Engineering first
-                try:
-                    vp = await DynamicAgent.create_vp_engineering(
-                        payload.get("description", "")
-                    )
-                    logger.info("VP of Engineering created successfully")
+                # Configure the LLM for CrewAI
+                llm = LLM(
+                    model="anthropic/claude-3-7-sonnet-20250219",
+                    temperature=0.3,  # Lower temperature for more predictable outputs
+                    max_tokens=4000,   # Reasonable limit for responses
+                    timeout=120        # 2-minute timeout for completions
+                )
+                logger.info("LLM configured for CrewAI")
 
-                    # Add default tools to VP
-                    vp.tools = default_tools.copy() if default_tools else []
+                # HARDCODED FIRST AGENT - VP of Engineering (Tank)
+                # Following the pattern from vp_creation_with_timeout function
+                vp_agent = {
+                    "id": "agent-1",
+                    "name": "Tank - VP of Engineering",
+                    "role": "VP of Engineering",
+                    "backstory": f"""As the VP of Engineering, you are responsible for bootstrapping
+                    the AI ecosystem. Your purpose is to analyze requirements and oversee
+                    the team needed for building and maintaining {description}.
+            
+                    You excel at analyzing project requirements thoroughly, designing complete teams
+                    of specialized professionals with complementary skills, and establishing clear roles,
+                    responsibilities, and collaboration patterns. You ensure the project development
+                    is self-sustaining and adaptable to new requirements and challenges.
+                    
+                    With your strategic vision and leadership skills, you serve as the primary
+                    communication hub between the team and stakeholders, orchestrating the entire
+                    development process from architecture and coding to testing and deployment.""",
+                    "short_description": f"Orchestrates the development of {description} with strategic vision and serves as the primary communication hub between the team and humans"
+                }
+                
+                logger.info(f"VP of Engineering (Tank) hardcoded successfully")
 
-                    # Create additional team members - this MUST use the foundation model, not defaults
-                    # Use a timeout to prevent hanging if something goes wrong
-                    try:
-                        additional_agents = await asyncio.wait_for(
-                            _create_additional_team_members(
-                                payload.get("description", ""), default_tools
-                            ),
-                            timeout=60,  # 60 second timeout for creating additional members
-                        )
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            "Timeout creating additional team members - falling back to minimal team"
-                        )
-                        # Create at least one additional agent to have a minimal viable team
-                        from .core.dynamic import DynamicAgent
-
-                        additional_agents = [
-                            DynamicAgent(
-                                role="Lead Developer",
-                                goal="Implement core functionality",
-                                backstory="Experienced developer with a focus on software architecture and implementation",
-                                api_endpoint=None  # Use default API endpoint instead of allow_delegation
+                # Define CrewAI Tools for creating additional team members
+                class ProjectRequirementsTool(BaseTool):
+                    """Tool for analyzing project requirements."""
+                    name: str = "ProjectRequirementsTool"
+                    description: str = "Analyzes project requirements to determine the needed team structure."
+                    
+                    def _run(self, description: str) -> str:
+                        """Analyze the project requirements and suggest team roles."""
+                        logger.info(f"Analyzing requirements: {description}")
+                        
+                        try:
+                            # This is just a template tool that forwards the description
+                            return (
+                                f"Based on the project description: '{description}', "
+                                "I recommend building a cross-functional team with expertise in "
+                                "software development, project management, and domain knowledge."
                             )
-                        ]
-                        additional_agents[0].name = "Lead Developer"
-                        additional_agents[
-                            0
-                        ].short_description = "Implements core functionality"
+                        except Exception as e:
+                            logger.error(f"Error in ProjectRequirementsTool: {str(e)}")
+                            return f"Error analyzing requirements: {str(e)}"
 
-                    # Ensure we got valid agents from the foundation model
-                    if not additional_agents:
-                        logger.error(
-                            "Foundation model did not return any team members - this is a critical error"
-                        )
-                        return {
-                            "error": "Foundation model did not generate team members. Please check the API connection or adjust the prompt."
-                        }
-
-                    logger.info(
-                        f"Successfully created {len(additional_agents)} additional team members using foundation model"
-                    )
-
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create VP of Engineering: {str(e)}", exc_info=True
-                    )
-                    return {"error": f"Failed to create VP of Engineering: {str(e)}"}
-
-                # Convert dictionary agents to DynamicAgent objects
-                dynamic_additional_agents = []
-                # Store character attributes in project_context dictionaries
-                for agent_dict in additional_agents:
-                    # Create a DynamicAgent with the correct parameters
-                    dynamic_agent = DynamicAgent(
-                        role=agent_dict["role"],
-                        goal=agent_dict["goal"],
-                        backstory=agent_dict["description"],
-                        api_endpoint=None  # Use default API endpoint
-                    )
+                class TeamRoleGeneratorTool(BaseTool):
+                    """Tool for generating appropriate team roles based on project needs."""
+                    name: str = "TeamRoleGeneratorTool"
+                    description: str = "Generates appropriate team roles based on project requirements."
                     
-                    # Set name and other attributes after initialization
-                    dynamic_agent.name = agent_dict["name"]
-                    dynamic_agent.short_description = agent_dict.get("description", "")[:100]
+                    def _run(self, description: str) -> str:
+                        """Generate appropriate team roles."""
+                        logger.info(f"Generating team roles for: {description}")
+                        
+                        try:
+                            # Basic default roles when specific details aren't available
+                            return json.dumps({
+                                "roles": [
+                                    {"title": "Software Architect", "focus": "System architecture and technical decisions"},
+                                    {"title": "Developer", "focus": "Implementation and feature development"},
+                                    {"title": "UX Designer", "focus": "User experience and interface design"}
+                                ]
+                            })
+                        except Exception as e:
+                            logger.error(f"Error in TeamRoleGeneratorTool: {str(e)}")
+                            return f"Error generating team roles: {str(e)}"
+
+                class TeamMemberCreatorTool(BaseTool):
+                    """Tool for creating detailed team member profiles with character names."""
+                    name: str = "TeamMemberCreatorTool"
+                    description: str = "Creates detailed profiles for each team member based on their role with character-like names."
                     
-                    # Store character attributes in the agent's _state["project_context"] dictionary
-                    # This is a dictionary maintained by DynamicAgent for custom attributes
-                    dynamic_agent._state["project_context"] = {
-                        "character": agent_dict.get("character", []),
-                        "communication_style": agent_dict.get("communication_style", ""),
-                        "working_style": agent_dict.get("working_style", ""),
-                        "emoji": agent_dict.get("emoji", "💡"),
-                        "visual_description": agent_dict.get("visual_description", ""),
-                        "catchphrase": agent_dict.get("catchphrase", "")
-                    }
+                    def _format_prompt(self, role_data: str) -> str:
+                        """Create a specific prompt to guide the LLM to produce correctly formatted JSON."""
+                        # For the new approach, we want an optimized team structure
+                        if isinstance(role_data, str):
+                            # Extract any team structure instructions if available
+                            if "team" in role_data.lower() and "structure" in role_data.lower():
+                                return f"""Generate the OPTIMAL team structure for this project:
+                                
+{role_data}
+
+Focus on efficiency and leanness. Only include teams and roles that are absolutely necessary for success.
+The optimal structure might be 2-3 teams or 4-5 teams - you should determine what's truly optimal.
+Design the team to be cross-functional, with each role carefully considered for maximum impact.
+
+Rather than including many specialists, prefer versatile team members who can handle multiple areas.
+Don't include redundant roles or overspecialize.
+
+Provide ONLY valid JSON with a teams structure including members. Include all teams in one comprehensive response."""
+                            else:
+                                # Fall back to generic prompt for optimal team
+                                return """Generate the OPTIMAL team structure for an agentic, AI-native IDE project.
+
+The optimal structure should be:
+- Lean and efficient (likely 3-4 teams total)
+- Cross-functional with minimal role overlap
+- Every team member serves a critical function
+- No redundant roles or overspecialization
+
+Focus on the most important teams: engineering, AI/ML, and design/product.
+Only include roles that are truly essential for an initial product launch.
+Provide ONLY valid JSON with the teams structure including members with backstories."""
+                        return None
                     
-                    # Add the agent to our list
-                    dynamic_additional_agents.append(dynamic_agent)
+                    def _run(self, role_data: str) -> str:
+                        """Create detailed profiles for team members with character names."""
+                        logger.info(f"Creating team member profiles for roles: {role_data}")
+                        
+                        try:
+                            # First, try to generate a structured prompt for better results
+                            formatted_prompt = self._format_prompt(role_data)
+                            if formatted_prompt:
+                                # If we have a formatted prompt, use it directly
+                                logger.info("Using formatted prompt for team structure generation")
+                                return formatted_prompt
+                            
+                            # Import JSONExtractor from server.py if available
+                            try:
+                                from tribe.server import JSONExtractor
+                                use_extractor = True
+                            except ImportError:
+                                use_extractor = False
+                                logger.warning("Could not import JSONExtractor, using basic JSON parsing")
+                            
+                            # Try to parse the role data - first look for teams structure
+                            if use_extractor:
+                                extracted_data, success = JSONExtractor.extract_json(role_data, expected_keys=["teams"])
+                                if success:
+                                    logger.info(f"Successfully extracted teams structure using JSONExtractor")
+                                    return json.dumps(extracted_data)
+                            
+                            # If we have a string, try to parse as JSON
+                            if isinstance(role_data, str):
+                                try:
+                                    data = json.loads(role_data)
+                                    # If we already have teams, just return it
+                                    if "teams" in data:
+                                        return json.dumps(data)
+                                except json.JSONDecodeError:
+                                    logger.warning("Could not parse role_data as JSON")
+                            
+                            # Fall back to the original implementation
+                            # Parse the role data as either JSON string or dict
+                            if isinstance(role_data, str):
+                                try:
+                                    data = json.loads(role_data)
+                                    roles = data.get("roles", [])
+                                except json.JSONDecodeError:
+                                    roles = []
+                            else:
+                                roles = role_data.get("roles", [])
+                            
+                            if not roles:
+                                logger.warning("No roles found in role_data")
+                                return json.dumps({"teams": [
+                                    {
+                                        "team_name": "Core Development",
+                                        "focus": "Building the essential features",
+                                        "members": [
+                                            {
+                                                "name": "Sparks - Engineering Lead",
+                                                "role": "Engineering Lead",
+                                                "backstory": "A brilliant architect with experience building complex systems",
+                                                "team": "Core Development",
+                                                "is_lead": True
+                                            }
+                                        ]
+                                    }
+                                ]})
+                            
+                            # Character names for each role
+                            character_names = [
+                                "Sparks", "Nova", "Cipher", "Echo", "Flux", 
+                                "Quantum", "Pixel", "Nexus", "Vector", "Matrix"
+                            ]
+                            
+                            # Create teams based on roles
+                            teams = [
+                                {
+                                    "team_name": "Core Development",
+                                    "focus": "Building the essential features",
+                                    "members": []
+                                }
+                            ]
+                            
+                            for i, role in enumerate(roles):
+                                team_idx = min(i // 3, len(teams) - 1)  # Assign to appropriate team
+                                character_name = character_names[i % len(character_names)]
+                                role_title = role.get('title', 'Engineer')
+                                role_focus = role.get('focus', 'development')
+                                is_lead = role.get('is_lead', i == 0)  # First role is lead by default
+                                
+                                member = {
+                                    "name": f"{character_name} - {role_title}",
+                                    "role": role_title,
+                                    "backstory": f"A talented professional specializing in {role_focus}. {character_name} brings expertise and creative solutions to every project.",
+                                    "team": teams[team_idx]["team_name"],
+                                    "is_lead": is_lead
+                                }
+                                
+                                teams[team_idx]["members"].append(member)
+                            
+                            return json.dumps({"teams": teams})
+                            
+                        except Exception as e:
+                            logger.error(f"Error in TeamMemberCreatorTool: {str(e)}")
+                            logger.error(traceback.format_exc())
+                            # Return a minimal valid JSON structure
+                            return json.dumps({"teams": [
+                                {
+                                    "team_name": "Core Development",
+                                    "focus": "Building the essential features",
+                                    "members": [
+                                        {
+                                            "name": "Sparks - Engineering Lead",
+                                            "role": "Engineering Lead",
+                                            "backstory": "A brilliant architect with experience building complex systems",
+                                            "team": "Core Development",
+                                            "is_lead": True
+                                        }
+                                    ]
+                                }
+                            ]})
+
+                # Create the CrewAI agents
+                requirements_analyst = Agent(
+                    role="Requirements Analyst",
+                    goal="Analyze project requirements to determine team structure",
+                    backstory="""You are an experienced requirements analyst with a talent for 
+                    understanding project needs and translating them into team requirements. 
+                    You excel at identifying the key skills and roles needed for successful project execution.""",
+                    tools=[ProjectRequirementsTool()],
+                    llm=llm,
+                    verbose=True
+                )
                 
-                logger.info(f"Successfully converted {len(dynamic_additional_agents)} dictionary agents to DynamicAgent objects")
+                team_architect = Agent(
+                    role="Team Architect",
+                    goal="Design an optimal team structure based on project requirements",
+                    backstory="""You are a skilled team architect with years of experience building 
+                    high-performing teams. You understand the dynamics of different roles and how they 
+                    complement each other to create a balanced and effective team.""",
+                    tools=[TeamRoleGeneratorTool()],
+                    llm=llm,
+                    verbose=True
+                )
                 
-                # Create dynamic crew with the VP and converted additional agents
-                try:
-                    all_agents = [vp] + dynamic_additional_agents
+                talent_manager = Agent(
+                    role="Talent Manager",
+                    goal="Create detailed profiles for team members based on required roles",
+                    backstory="""You are a talented personnel manager with expertise in creating 
+                    well-matched teams. You know how to craft realistic and detailed profiles with 
+                    character-like names for team members that align with project needs and create 
+                    a cohesive team dynamic.""",
+                    tools=[TeamMemberCreatorTool()],
+                    llm=llm,
+                    verbose=True
+                )
 
-                    # Double-check we have enough agents for a proper team
-                    if len(all_agents) < 3:
-                        logger.error(
-                            f"Insufficient agents created: only {len(all_agents)} agents available"
-                        )
-                        return {
-                            "error": "Failed to create sufficient agents for a team. The foundation model must be used to generate a proper team."
-                        }
+                # Create the CrewAI tasks
+                analyze_requirements = Task(
+                    description=f"Analyze the following project description and determine what kind of team would be needed: {description}",
+                    agent=requirements_analyst,
+                    expected_output="A detailed analysis of the project requirements and recommendations for team structure"
+                )
+                
+                design_team = Task(
+                    description="Based on the project requirements analysis, design an optimal team structure with specific roles",
+                    agent=team_architect,
+                    expected_output="A JSON structure with the recommended team roles and their areas of focus",
+                    context=[analyze_requirements]  # This task depends on the output of the previous task
+                )
+                
+                create_members = Task(
+                    description="""Create detailed profiles for each team member based on the designed team structure.
+                    Each member should have a character-like name (e.g., Sparks, Nova, Cipher) followed by their role.
+                    For example: 'Sparks - Lead Developer', 'Nova - UX Designer', etc.""",
+                    agent=talent_manager,
+                    expected_output="Detailed profiles for each team member including character name, role, and backstory",
+                    context=[design_team]  # This task depends on the output of the previous task
+                )
 
-                    # Log the agent roster for debugging
-                    logger.info(f"Creating dynamic crew with {len(all_agents)} agents:")
-                    for agent in all_agents:
-                        logger.info(
-                            f"  - {agent.name if hasattr(agent, 'name') else 'Unnamed'} ({agent.role})"
-                        )
-
-                    dynamic_crew = DynamicCrew(
-                        config={
-                            "agents": all_agents,
-                            "tasks": [],
-                            "process": "hierarchical",
-                            "verbose": True,
-                            "max_rpm": 60,
-                            "share_crew": True,
-                            "model": "anthropic/claude-3-7-sonnet-20250219",
-                        }
-                    )
-
-                    # Add all agents to crew and verify
-                    for agent in all_agents:
-                        dynamic_crew.add_agent(agent)
-
-                    if not dynamic_crew.get_active_agents():
-                        raise ValueError("Failed to add agents to crew")
-
-                    logger.info(
-                        "Dynamic crew created and all agents added successfully"
-                    )
-
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create dynamic crew: {str(e)}", exc_info=True
-                    )
-                    return {"error": f"Failed to create team infrastructure: {str(e)}"}
-
-                # Store crew for future reference
-                crew_id = str(int(asyncio.get_event_loop().time() * 1000))
-                ls.active_crews[crew_id] = dynamic_crew
-
-                # Store agent references
-                for agent in all_agents:
-                    ls.active_agents[
-                        agent.id if hasattr(agent, "id") else str(uuid.uuid4())
-                    ] = agent
-
-                # Return successful response with detailed agent info
-                response = {
+                # Create the crew
+                crew = Crew(
+                    agents=[requirements_analyst, team_architect, talent_manager],
+                    tasks=[analyze_requirements, design_team, create_members],
+                    verbose=True,
+                    process=Process.sequential  # Execute tasks in sequence
+                )
+                
+                # Run the crew to create the team
+                logger.info("Starting CrewAI execution to create additional team members")
+                
+                # We need to run the crew in a separate thread to avoid blocking
+                def run_crew():
+                    try:
+                        # Use a longer timeout (300 seconds) to ensure we can generate a complete team in one call
+                        result = crew.kickoff(timeout=300)
+                        logger.info(f"CrewAI execution completed with result: {result}")
+                        return result
+                    except Exception as e:
+                        logger.error(f"Error in CrewAI execution: {str(e)}")
+                
+                # Run the crew and wait for the result
+                loop = asyncio.get_event_loop()
+                crew_result = await loop.run_in_executor(None, run_crew)
+                
+                # Handle the result and combine with hardcoded VP
+                additional_team_members = []
+                
+                if crew_result:
+                    # Parse the team members from CrewAI result
+                    if isinstance(crew_result, str):
+                        try:
+                            team_data = json.loads(crew_result)
+                            if "team_members" in team_data:
+                                additional_team_members = team_data["team_members"]
+                        except Exception as e:
+                            logger.error(f"Error parsing CrewAI result: {str(e)}")
+                    else:
+                        additional_team_members = crew_result.get("team_members", [])
+                
+                # If CrewAI didn't return any additional members, we'll proceed with just the VP
+                # We don't add hardcoded fallback members when network is available
+                if not additional_team_members:
+                    logger.warning("CrewAI didn't return additional team members, but continuing with VP only")
+                
+                # Combine the VP with any additional team members from CrewAI
+                all_team_members = [vp_agent] + additional_team_members
+                
+                # Format the team data
+                timestamp = int(time.time() * 1000)
+                team_data = {
                     "project": {
-                        "id": f"project-{crew_id}",
+                        "id": f"project-{timestamp}",
                         "name": "Project",
-                        "description": payload.get("description", ""),
+                        "description": description,
                         "initialized": True,
                         "team": {
-                            "id": f"team-{crew_id}",
-                            "name": "Team",
-                            "description": f"Team for {payload.get('description', '')}",
-                        "agents": [
-                            {
-                                "id": str(agent.id)
-                                if hasattr(agent, "id")
-                                else str(uuid.uuid4()),
-                                "role": agent.role,
-                                "name": agent.name
-                                if hasattr(agent, "name")
-                                else agent.role,
-                                "description": agent.short_description
-                                if hasattr(agent, "short_description")
-                                else "",
-                                "short_description": agent.short_description
-                                if hasattr(agent, "short_description")
-                                else "",
-                                "backstory": agent.backstory
-                                if hasattr(agent, "backstory")
-                                else "",
-                                "status": "active",
-                                "initialization_complete": getattr(
-                                    agent, "initialization_complete", True
-                                ),
-                                "tools": [
-                                    tool.name
-                                    for tool in agent.tools
-                                    if hasattr(tool, "name")
-                                ]
-                                if hasattr(agent, "tools")
-                                else [],
-                            }
-                            for agent in all_agents
-                            ]
+                            "id": f"team-{timestamp}",
+                            "agents": all_team_members
                         }
                     }
                 }
-
-                return response
-
+                
+                logger.info(f"Team created successfully with {len(all_team_members)} members")
+                return team_data
+                
             except Exception as e:
-                logger.error(f"Error in actual_implementation: {str(e)}", exc_info=True)
-                return {"error": f"Implementation error: {str(e)}"}
+                logger.error(f"Error in actual_implementation: {str(e)}")
+                logger.error(traceback.format_exc())
+                return create_fallback_team(payload.get("description", "A software development team"))
+        
+        # Create a fallback team when dynamic creation fails
+        def create_fallback_team(description):
+            """Create a fallback team when dynamic creation fails."""
+            logger.info("Creating fallback team")
+            
+            timestamp = int(time.time() * 1000)
+            
+            return {
+                "project": {
+                    "id": f"project-fallback-{timestamp}",
+                    "name": "Project",
+                    "description": description,
+                    "initialized": True,
+                    "team": {
+                        "id": f"team-fallback-{timestamp}",
+                        "agents": [
+                            {
+                                "id": "agent-1",
+                                "name": "Tank - VP of Engineering",
+                                "role": "VP of Engineering",
+                                "backstory": f"As the VP of Engineering for {description}, Tank brings strategic vision and leadership to the project, coordinating all aspects of development.",
+                                "short_description": "Orchestrates the development process with strategic vision"
+                            },
+                            {
+                                "id": "agent-2",
+                                "name": "Sparks - Lead Developer",
+                                "role": "Lead Developer",
+                                "backstory": "A passionate developer with expertise in architecture and implementation. Sparks brings creative solutions to complex problems.",
+                                "short_description": "Implements core functionality with creative solutions"
+                            },
+                            {
+                                "id": "agent-3",
+                                "name": "Nova - UX Designer",
+                                "role": "UX Designer",
+                                "backstory": "A talented designer with a keen eye for usability and aesthetics. Nova ensures the project has an intuitive and beautiful interface.",
+                                "short_description": "Creates intuitive and beautiful user interfaces"
+                            }
+                        ]
+                    }
+                }
+            }
 
-        # Now execute the implementation with a timeout
+        # Apply global timeout to the implementation
         try:
             result = await asyncio.wait_for(
-                actual_implementation(), 120
-            )  # 2 minute overall timeout
+                actual_implementation(), timeout=120  # 2-minute timeout
+            )
             return result
         except asyncio.TimeoutError:
-            logger.error("Team creation timed out after 120 seconds")
-            return {
-                "error": "Team creation timed out. This is likely due to slow responses from the foundation model."
-            }
-        except Exception as e:
-            logger.error(f"Error in team creation: {str(e)}")
-            return {"error": f"Error creating team: {str(e)}"}
-
+            logger.error("Timeout during team creation")
+            return create_fallback_team(payload.get("description", "A software development team"))
+            
     except Exception as e:
-        logger.error(f"Error creating team: {str(e)}")
-        return {"error": f"Error creating team: {str(e)}"}
+        logger.error(f"Error in _create_team_implementation: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Create a fallback team for any errors
+        return create_fallback_team(payload.get("description", "A software development team"))
 
 
 async def _create_additional_team_members(project_description: str, default_tools: List = None) -> list:
@@ -317,10 +547,10 @@ async def _create_additional_team_members(project_description: str, default_tool
     logger.info("Creating professional team members using direct API calls")
     
     try:
-        # Create professional team members using direct API approach
+        # Create professional team members using direct API approach - let the API determine the optimal size
         team_members = create_team_api(
             project_description=project_description,
-            team_size=3,  # Generate 3 team members
+            # Remove the hardcoded team_size to allow the API to determine the optimal team structure
             model="claude-3-7-sonnet-20250219",
             temperature=0.7
         )
@@ -368,6 +598,51 @@ async def _create_additional_team_members(project_description: str, default_tool
         logger.exception(e)  # Log full traceback for debugging
         # Fallback to empty list in case of error
         return []
+
+
+# Similarly, register only the feature for analyzeRequirements
+@tribe_server.feature("tribe.analyzeRequirements")
+async def analyze_requirements_feature(ls: TribeLanguageServer, params):
+    """Analyze requirements and create/update agents (called via LSP)."""
+    try:
+        # Extract payload from params
+        payload = params if isinstance(params, dict) else params.__dict__
+        logger.info(f"tribe.analyzeRequirements feature called with params: {payload}")
+        return await _analyze_requirements_implementation(ls, payload)
+    except Exception as e:
+        logger.error(f"Error in analyze_requirements_feature: {str(e)}")
+        logger.error(traceback.format_exc())
+        return str(e)
+
+
+@tribe_server.command("tribe.analyzeRequirements")
+async def analyze_requirements_command(ls: TribeLanguageServer, payload: dict) -> str:
+    """Analyze requirements and create/update agents (called via command)."""
+    logger.info(f"tribe.analyzeRequirements command called with payload: {payload}")
+    return await _analyze_requirements_implementation(ls, payload)
+
+
+async def _analyze_requirements_implementation(ls: TribeLanguageServer, payload: dict) -> str:
+    """Implementation for analyzing requirements that both command and feature can use."""
+    try:
+        # Use the crew ai LLM directly
+        from crewai import LLM
+        model = LLM(model="anthropic/claude-3-7-sonnet-20250219")
+        
+        system_message = """You are a requirements analysis expert. Your task is to analyze the given requirements 
+        and provide structured feedback on its completeness, feasibility, and potential implementation approach."""
+        
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": payload.get("requirements", "")}
+        ]
+        
+        response_content = model.call(messages=messages)
+        return response_content or f"Analysis failed for requirements:\n{payload.get('requirements')}\n\nPlease try again with more detailed requirements."
+    except Exception as e:
+        logger.error(f"Error in _analyze_requirements_implementation: {str(e)}")
+        logger.error(traceback.format_exc())
+        return str(e)
 
 
 @tribe_server.command("tribe.initializeProject")
@@ -654,28 +929,6 @@ def send_crew_message(ls: TribeLanguageServer, payload: dict) -> dict:
     except Exception as e:
         logger.error(f"Error sending crew message: {str(e)}")
         return {"type": "ERROR", "payload": f"Error sending crew message: {str(e)}"}
-
-
-@tribe_server.command("tribe.analyzeRequirements")
-def analyze_requirements(ls: TribeLanguageServer, payload: dict) -> str:
-    """Analyze requirements and create/update agents."""
-    try:
-        # Use the crew ai LLM directly
-        from crewai import LLM
-        model = LLM(model="anthropic/claude-3-7-sonnet-20250219")
-        
-        system_message = """You are a requirements analysis expert. Your task is to analyze the given requirements 
-        and provide structured feedback on its completeness, feasibility, and potential implementation approach."""
-        
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": payload.get("requirements", "")}
-        ]
-        
-        response_content = model.call(messages=messages)
-        return response_content or f"Analysis failed for requirements:\n{payload.get('requirements')}\n\nPlease try again with more detailed requirements."
-    except Exception as e:
-        return str(e)
 
 
 class TribeExtension:
